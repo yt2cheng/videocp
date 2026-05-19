@@ -8,7 +8,7 @@ download:
 browser:
   profile_dir: ~/Library/Caches/videocp/chrome-profile
   browser_path: ""
-  headless: false
+  headless: true
 
 request:
   timeout_secs: 30

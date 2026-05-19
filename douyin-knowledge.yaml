@@ -1,0 +1,210 @@
+# Douyin knowledge creator sync task configuration
+# Usage: uv run videocp sync --tasks-file douyin-knowledge.yaml
+
+sync:
+  history_file: ./sync_history_douyin_knowledge.json
+  skill_dir: ~/.claude/skills/tencent-channel-community/
+  videos_per_task: 1
+  publish_method: skill
+  skip_rate: 0
+
+tasks:
+  - name: "douyin-这不科学啊"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAprnLAzLSWusGfifK9oHcwLt6k9lXvj2PBCaCtgBiZ2kHfZGmjRLXCGFGxN2cEdhH"
+    title_template: "{desc}"
+
+  - name: "douyin-科学旅行号"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA8xUmseK9-WQLGOWbjXCpYcJZU0HPGUf9-qOZ1S7oZ0Q"
+    title_template: "{desc}"
+
+  - name: "douyin-无穷小亮的科普日常"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAt2N8a6NX9fwUXQRUSW2_neQsQy_z-LRSM0S3jioc2rmS6bNhhEpq1cGSevx6Ynca"
+    title_template: "{desc}"
+
+  - name: "douyin-模型师老原儿"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAquCosCVw-uWMCaAnn6g8W5n_cZqmg0OMpzFuhyiS4yePYLCiof-9c5iJVY5LdA89"
+    title_template: "{desc}"
+
+  - name: "douyin-李论科学"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA178XQjV85eh8zMbSBCfrKnN_UVDdBxDsTeegMQeRLJM"
+    title_template: "{desc}"
+
+  - name: "douyin-科学火箭叔"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA8LmARGmFVeb630_i0jBw7PVwaGVsnwHB9gmFROykBRM"
+    title_template: "{desc}"
+
+  - name: "douyin-科学认识论"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAKE7WiobmK14qYaWLTp-BJ9CvP4X2c_ug-0gAKAQNHqM"
+    title_template: "{desc}"
+
+  - name: "douyin-科普宇宙"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAQ0beV7aR544pzS0scTa__m9YEjpV2uvyI4Bwjx9MfW4"
+    title_template: "{desc}"
+
+  - name: "douyin-科普新视野"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAgEnLLrw0S4_ajsCgsI9DiMos8l2cOJQR0Vt4iDqzJDA"
+    title_template: "{desc}"
+
+  - name: "douyin-老洋人科普"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAo5w50UrHr-X2XezTNoYdFLQEY61fbY9nRDlSxnPUtCPXknIEuDRs2O1ymnYd3WEK"
+    title_template: "{desc}"
+
+  - name: "douyin-脑洞里的宇宙"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAOf_k_ewTuSjxAH2Lkah7nxCsjbUPuywO_O28a-pYuVDin5lD7dMQef6EPWfERjvV"
+    title_template: "{desc}"
+
+  - name: "douyin-中国国家地理"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAACfTm8VE6Ia7Tzbhh-ehC8Lab6BmAD0lhLozEFQE5sNfbL5rOux0Vl0LtBzDzgnMr"
+    title_template: "{desc}"
+
+  - name: "douyin-中国国家地理景观"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA8KPD9RkYPZfK9tvQqMNjc5u8dE6poFdULNbqUhE0oEk"
+    title_template: "{desc}"
+
+  - name: "douyin-热爱干饭饭饭"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAdhcanEZZcNsF7SUZJ4RHttFHnmwYCnzzeyzsA0NtPvM"
+    title_template: "{desc}"
+
+  - name: "douyin-小靳老师讲地理"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAmIOmZAp9oI0rS_-vYBvpv2ItLH0byjS7WB5OGOAvOA4"
+    title_template: "{desc}"
+
+  - name: "douyin-小阳的昆虫世界"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAPGRTh9w_VwjSuCJzHuTzB6Ex9ZkkQjsSqB91Gfk-Xig"
+    title_template: "{desc}"
+
+  - name: "douyin-董点地质"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAALbpCQA-exmGIKOZZONVKcaUooT4ONKi9kHfzHRFoNp8"
+    title_template: "{desc}"
+
+  - name: "douyin-奇妙博物馆"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAmPAxpPb-ZWRNcQZrk9Np8yQApArOoXCiUOcd5Ld9v2I"
+    title_template: "{desc}"
+
+  - name: "douyin-老马探秘社"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAck9DQ73kTj4NopkKhMr0HMHjL429iP4In4IA_CSWFKUMp1ON63fRD_RRu79YA42h"
+    title_template: "{desc}"
+
+  - name: "douyin-发兔冷知识"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA04yg4OK-bUEsTYbGee-ZdhW216zYB3uxBkyXbrbPEfg"
+    title_template: "{desc}"
+
+  - name: "douyin-央视国家记忆"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAlbiGVKkE2_XuYwpyqsh3m7AvYlnQ4NCoUvOeLluroZM"
+    title_template: "{desc}"
+
+  - name: "douyin-历史讲解员王汉周"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA8uMdQfNAmyVh8uimIRh1Un9WOCENAmiMAGwuq0sZKGA"
+    title_template: "{desc}"
+
+  - name: "douyin-赵健的读书日记"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAbDebblW_LiKaOTpF39_XliXp5mwABi_MLh8Ns4ulGN3V8BHsvJ7Z8NlB7_knqOws"
+    title_template: "{desc}"
+
+  - name: "douyin-都靓读书"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAkKYbsFEfsx3RcbEMVdyxvkAltPPmNkfVe5dvryjDBzY"
+    title_template: "{desc}"
+
+  - name: "douyin-略懂点知识"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAAI-y4jVwNlJ-rrehhuaK-zfC4XxWi0wJEEXIDYoXhUs"
+    title_template: "{desc}"
+
+  - name: "douyin-医路向前巍子"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAArpWodT3Pj5GRZkmJREQ9oT3EBk5nbGsIu80t-J854EU"
+    title_template: "{desc}"
+
+  - name: "douyin-薄世宁医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAz1lOStxwzCZF5cJ3h8Sa2FPQ_8_l_vQdpdKEm1oEF_k"
+    title_template: "{desc}"
+
+  - name: "douyin-丁香医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAd2SoOO020RyRJI8wJGJt5oH8CwqixxAQmd7138DMSZo"
+    title_template: "{desc}"
+
+  - name: "douyin-心血管王医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA7svG5EB1INLdkgi2zkMb0VJAeysaGXsYkXqlZ4QLNi8"
+    title_template: "{desc}"
+
+  - name: "douyin-王世宁医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAvxjRMU36gpIHMcy3m38XSnJ9KqUg8xKbi34y_mmle5g"
+    title_template: "{desc}"
+
+  - name: "douyin-协和烟雨医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA89SmSpUVzt1MNDUdKJnRj4V_SpQYT9A7vfn6xOPuhI6ReW6yXpQYpXiL02l5kLaU"
+    title_template: "{desc}"
+
+  - name: "douyin-宋璞医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAtuDOOW5KSrm2TaKAVU2Vp2smhvaSSqlbGqD6Q-f3YtQ"
+    title_template: "{desc}"
+
+  - name: "douyin-喻宾华医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAibJxTwHfJ6WzOOn6NFi5tvL4j7pDP9tAROr_qpZB5mw"
+    title_template: "{desc}"
+
+  - name: "douyin-静静医生"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAw1jVto0GG_eXP-O85s0B9_pHlsw5ZwfpkXiPhMx5UlU"
+    title_template: "{desc}"
+
+  - name: "douyin-医学减重专家陈伟"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAFGjc-yWHSxgrY900fcAXhFGnPj4OThBhCrv5XNcr_As"
+    title_template: "{desc}"
+
+  - name: "douyin-直男财经"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAADUObyc_aoKXnXnV01JEcZMdvU0_ZFvFnVQAU-weztOgHubCQont1aDrDASxWu8B6"
+    title_template: "{desc}"
+
+  - name: "douyin-温义飞的急救财经"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAPc9V-v4o3BdxwccbI5sPhAF-UPPk86Pkql0L9mHAJDY"
+    title_template: "{desc}"
+
+  - name: "douyin-全说商业"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA9kW-bqa5AsYsoUGe_IJqCoqN3cJf8KSf59axEkWpafg"
+    title_template: "{desc}"
+
+  - name: "douyin-小A学财经"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA8t3b1dsGNvJgc6cUe-Bm2JCyqtrs_c1zJZT6TmgxurkcAyap5aE-PRXpLX2tFuiu"
+    title_template: "{desc}"
+
+  - name: "douyin-小遥说商业"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAwnSyCWsKIMnSnY1sd4wyo1-PoourM7-Uc_NSIEyP7ASa6FLHl2TZxcUYNDlxNOsD"
+    title_template: "{desc}"
+
+  - name: "douyin-小Yao财经"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAct4DUcDUSb3viSw03UD-6WUQ1ekBbNmyJF00z50QCXc"
+    title_template: "{desc}"
+
+  - name: "douyin-巫师财经"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAytpDnsYZsaBeiuf1stH3ylk2dS4BgBYYSuiYeyEeewaszA8ygQq0W5IkV53QS5ls"
+    title_template: "{desc}"
+
+  - name: "douyin-N小黑财经"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA-_-1yMYb0hBZynuQTpRZ6FPl22UyMPxYOb37Vr-OrSw"
+    title_template: "{desc}"
+
+  - name: "douyin-财才说"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAOIvgEg9etQXIaNkktvAEDy67ob0zgZ1KVemhB-FJ--A"
+    title_template: "{desc}"
+
+  - name: "douyin-商业小纸条real"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA9vF8GuJFzmmtDS7AFuS_RQVJlLMl2oo9I9ZLG7Sz9TY"
+    title_template: "{desc}"
+
+  - name: "douyin-醒醒吧张律"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAiumJafFzSdZRUKj3WenHrHmHjtBNlq4jFR_T8g6QhILOCwcDvHWfgWZElxQXdDcl"
+    title_template: "{desc}"
+
+  - name: "douyin-厚大.罗翔说刑法"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAkL9NcPDtYP-x8l4xkpqCjU7tP6zl-7QRu9SB-1ff8GCCGX56s1ld-zdHPsS8rZj-"
+    title_template: "{desc}"
+
+  - name: "douyin-一切皆法"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAtitq9PZLdIj6vJy2BhVZiqanfodCeotR2XSMGRWnbCs"
+    title_template: "{desc}"
+
+  - name: "douyin-罗欢平律师"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAAlT9YLBrDD4lWTVTgJ2H9UM3JwkjLLOwVP6gUW8jUFOU"
+    title_template: "{desc}"
+
+  - name: "douyin-超律法律"
+    source_url: "https://www.douyin.com/user/MS4wLjABAAAA7IJsnsoIUU0S8Bwwf11dekpmuEyNJJTkewixoTtkapAMvFrUnl3HAOMs1ZlREElC"
+    title_template: "{desc}"

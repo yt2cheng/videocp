@@ -81,6 +81,33 @@ def douyin_watermark_mode(url: str, semantic_tag: str = "") -> WatermarkMode:
     return WatermarkMode.UNKNOWN
 
 
+def _parse_int(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        return 0
+    match = re.search(r"\d+", value)
+    return int(match.group(0)) if match else 0
+
+
+def douyin_candidate_bitrate(candidate: MediaCandidate) -> int:
+    parsed = urlparse(candidate.url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    values: list[int] = []
+    for key in ("br", "bt", "bit_rate", "bitrate"):
+        values.extend(_parse_int(item) for item in query.get(key, []))
+
+    for pattern in (r"\bbit_rate=(\d+)", r"\bbitrate=(\d+)", r"\bbr=(\d+)", r"\bbt=(\d+)"):
+        values.extend(int(match.group(1)) for match in re.finditer(pattern, candidate.note))
+
+    return max(values, default=0)
+
+
+def douyin_bit_rate_index(candidate: MediaCandidate) -> int:
+    match = re.search(r"bit_rate\[(\d+)]", candidate.note)
+    return int(match.group(1)) if match else 10_000
+
+
 def generic_candidate_rank(candidate: MediaCandidate) -> tuple[int, int, int, int, str]:
     watermark_rank = 0 if candidate.watermark_mode == WatermarkMode.NO_WATERMARK else 1
     kind_rank = 0 if candidate.kind == MediaKind.MP4 else 1
@@ -319,7 +346,7 @@ class DouyinProvider(SiteProvider):
         metadata.aweme_id = extract_id_from_url(source_url, self.id_patterns)
         return metadata
 
-    def candidate_rank(self, candidate: MediaCandidate) -> tuple[int, int, int, int, int, int, str]:
+    def candidate_rank(self, candidate: MediaCandidate) -> tuple[int, int, int, int, int, int, int, str]:
         watermark_rank = 0 if candidate.watermark_mode == WatermarkMode.NO_WATERMARK else 1
         source_rank = 0 if candidate.source in {"json", "rewrite"} else 1
         kind_rank = 0 if candidate.kind == MediaKind.MP4 else 1
@@ -335,12 +362,22 @@ class DouyinProvider(SiteProvider):
             has_runtime_tokens = any(token in lowered_url for token in ("policy=", "signature=", "tk=", "fid=", "expire=", "ply_type="))
             request_runtime_rank = 0 if has_runtime_tokens and "is_ssr=1" not in lowered_url else 1
         rewrite_rank = 1 if candidate.source == "rewrite" else 0
-        # Prefer higher bit_rate index (higher quality). bit_rate[5] > bit_rate[0].
-        bitrate_rank = 0
-        m = re.search(r"bit_rate\[(\d+)]", candidate.note)
-        if m:
-            bitrate_rank = -int(m.group(1))  # negate so higher index sorts first
-        return (watermark_rank, source_rank, request_runtime_rank, kind_rank, track_rank, bitrate_rank, rewrite_rank, candidate.url)
+        # Douyin bit_rate array order is not a quality signal. Prefer the
+        # actual encoded bitrate exposed in URL/query metadata, then use the
+        # array index only as a fallback for candidates without bitrate data.
+        bitrate_rank = -douyin_candidate_bitrate(candidate)
+        index_rank = douyin_bit_rate_index(candidate)
+        return (
+            watermark_rank,
+            source_rank,
+            request_runtime_rank,
+            kind_rank,
+            track_rank,
+            bitrate_rank,
+            index_rank,
+            rewrite_rank,
+            candidate.url,
+        )
 
     def conservative_rewrites(self, candidates: list[MediaCandidate]) -> list[MediaCandidate]:
         if any(candidate.watermark_mode == WatermarkMode.NO_WATERMARK for candidate in candidates):
@@ -441,6 +478,10 @@ class DouyinProvider(SiteProvider):
                 if isinstance(play_addr, dict):
                     url_list = play_addr.get("url_list")
                     if isinstance(url_list, list):
+                        bitrate_note = ""
+                        bitrate = item.get("bit_rate")
+                        if isinstance(bitrate, (int, str)):
+                            bitrate_note = f" bit_rate={bitrate}"
                         for candidate_url in url_list:
                             if isinstance(candidate_url, str):
                                 accumulator.add_candidate(
@@ -448,7 +489,7 @@ class DouyinProvider(SiteProvider):
                                     source="json",
                                     observed_via="json",
                                     semantic_tag=f"{path}[{index}].play_addr",
-                                    note=f"{path}[{index}].play_addr",
+                                    note=f"{path}[{index}].play_addr{bitrate_note}",
                                 )
 
 

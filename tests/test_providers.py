@@ -1,5 +1,5 @@
 from videocp.extractor import ExtractionAccumulator
-from videocp.models import ObservedEvent, TrackType
+from videocp.models import MediaCandidate, MediaKind, ObservedEvent, TrackType, WatermarkMode
 from videocp.input_parser import parse_input
 from videocp.providers import get_provider_by_key, resolve_provider
 
@@ -178,6 +178,32 @@ def test_douyin_provider_prefers_target_json_candidates_over_network_noise():
     candidates = provider.sort_candidates(accumulator.candidates)
 
     assert candidates[0].url == "https://example.com/target-video-avc1.mp4?watermark=0"
+
+
+def test_douyin_provider_prefers_real_bitrate_over_bit_rate_index():
+    provider = get_provider_by_key("douyin")
+    low_bitrate_late_index = MediaCandidate(
+        url="https://example.com/media-video-hvc1/?br=153&bt=153&mime_type=video_mp4",
+        kind=MediaKind.MP4,
+        track_type=TrackType.VIDEO_ONLY,
+        watermark_mode=WatermarkMode.NO_WATERMARK,
+        source="json",
+        observed_via="json",
+        note="$.aweme_detail.video.bit_rate[22].play_addr",
+    )
+    high_bitrate_early_index = MediaCandidate(
+        url="https://example.com/media-video-avc1/?br=1002&bt=1002&mime_type=video_mp4",
+        kind=MediaKind.MP4,
+        track_type=TrackType.VIDEO_ONLY,
+        watermark_mode=WatermarkMode.NO_WATERMARK,
+        source="json",
+        observed_via="json",
+        note="$.aweme_detail.video.bit_rate[0].play_addr",
+    )
+
+    candidates = provider.sort_candidates([low_bitrate_late_index, high_bitrate_early_index])
+
+    assert candidates[0] == high_bitrate_early_index
 
 
 def test_douyin_dom_author_normalizes_leading_at_sign():

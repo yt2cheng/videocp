@@ -45,14 +45,28 @@ flowchart LR
 
 ## 安装
 
+推荐使用 `uv` 管理虚拟环境和依赖：
+
 ```bash
-python3 -m pip install -e '.[dev]'
+# 如果还没有安装 uv
+brew install uv
+
+# 创建或更新 .venv，并安装项目依赖和开发依赖
+uv sync --extra dev
 ```
 
-如果当前 shell 里没有 `videocp` 命令，可以通过项目虚拟环境运行：
+后续可以直接通过 `uv run` 执行命令：
 
 ```bash
-.venv/bin/python -m videocp --help
+uv run videocp --help
+uv run videocp doctor
+```
+
+如果已经激活 `.venv`，也可以直接使用 `videocp`：
+
+```bash
+source .venv/bin/activate
+videocp --help
 ```
 
 外部工具：

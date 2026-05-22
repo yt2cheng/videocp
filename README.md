@@ -1,101 +1,101 @@
 # videocp
 
-`videocp` is a Python CLI for downloading videos from Douyin, Bilibili, Xiaohongshu, Instagram, YouTube, and other sites supported by `yt-dlp`. It can also sync the latest videos from configured source profiles and publish them to QQ channels.
+`videocp` 是一个用于下载视频的 Python 命令行工具，支持抖音、B 站、小红书、Instagram、YouTube，以及其他 `yt-dlp` 支持的网站。它也可以按配置从来源账号拉取最新视频，并同步发布到 QQ 频道。
 
-Douyin and Xiaohongshu use a dedicated copied Chrome profile plus CDP extraction. Bilibili defaults to a built-in Python TV-mode downloader modeled after BBDown. Generic sites are routed through `yt-dlp` with browser cookies exported when possible.
+抖音和小红书通过独立复制的 Chrome profile 加 CDP 抓取视频信息；B 站默认使用内置的 TV 模式下载流程，逻辑参考 BBDown；其他通用网站会交给 `yt-dlp` 处理，并在可行时导出浏览器 cookie 以复用登录态。
 
-## Features
+## 功能
 
-| Feature | Description |
+| 功能 | 说明 |
 | --- | --- |
-| Single video download | Supports Douyin, Bilibili, Xiaohongshu, Instagram, YouTube, and generic `yt-dlp` sites |
-| Profile download | Supports Douyin user pages, Bilibili spaces, Xiaohongshu user pages, Instagram reels, YouTube shorts/videos |
-| Batch input | Accepts multiple command-line URLs or a txt file |
-| Link preparation | Extracts URLs from copied share text and writes canonical links |
-| QQ channel sync | Reads `tasks.yaml`, downloads new videos, dedupes via history, and publishes |
-| Browser login reuse | Uses an app-owned Chrome profile so authenticated sites can work |
-| Bilibili TV mode | Opens a QR login page once if no cached TV token exists |
-| Optional watermark removal | Can detect and remove Bilibili watermarks through Gemini/OpenRouter plus ffmpeg delogo |
+| 单视频下载 | 支持抖音、B 站、小红书、Instagram、YouTube，以及通用 `yt-dlp` 网站 |
+| 主页批量下载 | 支持抖音用户主页、B 站空间、小红书用户主页、Instagram reels、YouTube shorts/videos |
+| 批量输入 | 支持命令行传多个 URL，也支持从 txt 文件读取 |
+| 链接整理 | 从复制分享文案中提取 URL，并写出规范链接列表 |
+| QQ 频道同步 | 读取 `tasks.yaml`，下载新视频，基于历史记录去重，并发布 |
+| 浏览器登录复用 | 使用工具专用 Chrome profile，让需要登录的网站也能下载 |
+| B 站 TV 模式 | 没有缓存 TV token 时，会打开二维码登录页扫码一次 |
+| 可选水印处理 | 可通过 Gemini/OpenRouter 加 ffmpeg delogo 检测并移除 B 站水印 |
 
-Output is organized as:
+下载输出目录结构：
 
 ```text
 downloads/{site}-{author}/{content_id}.mp4
 downloads/{site}-{author}/{content_id}.json
 ```
 
-The JSON sidecar records metadata, source URLs, chosen download candidate, attempts, and diagnostics.
+同名 JSON sidecar 会记录元信息、来源 URL、最终选择的下载候选、尝试过程和诊断信息。
 
-## Workflow
+## 工作流程
 
 ```mermaid
 flowchart LR
-    A["Input URL, share text, or profile"] --> B["Extract and canonicalize URL"]
-    B --> C{"Profile page?"}
-    C -- "Yes" --> D["Expand latest N videos"]
-    C -- "No" --> E["Use single video"]
-    D --> F["Extract metadata and media candidates"]
+    A["输入 URL、分享文案或账号主页"] --> B["提取并规范化 URL"]
+    B --> C{"是否账号主页"}
+    C -- "是" --> D["展开最新 N 条视频"]
+    C -- "否" --> E["按单视频处理"]
+    D --> F["提取元信息和媒体候选"]
     E --> F
-    F --> G["Download mp4 and sidecar json"]
-    G --> H{"sync command?"}
-    H -- "No" --> I["Save under downloads"]
-    H -- "Yes" --> J["Publish with configured method"]
-    J --> K["Record sync_history for dedupe"]
+    F --> G["下载 mp4 和 sidecar json"]
+    G --> H{"是否 sync 命令"}
+    H -- "否" --> I["保存到 downloads"]
+    H -- "是" --> J["按配置方式发布"]
+    J --> K["写入 sync_history 去重"]
 ```
 
-## Install
+## 安装
 
 ```bash
 python3 -m pip install -e '.[dev]'
 ```
 
-If the `videocp` script is not available in your shell, run through the project virtual environment:
+如果当前 shell 里没有 `videocp` 命令，可以通过项目虚拟环境运行：
 
 ```bash
 .venv/bin/python -m videocp --help
 ```
 
-External tools:
+外部工具：
 
-| Tool | Required | Purpose |
+| 工具 | 是否必须 | 用途 |
 | --- | --- | --- |
-| Chrome-family browser | Yes | CDP extraction, login reuse, visible Bilibili TV QR login, QQ channel web publishing |
-| `ffmpeg` | Recommended | HLS fallback, video/audio muxing, watermark removal |
-| `yt-dlp` | Recommended | YouTube, Instagram, and generic site downloads |
+| Chrome 系浏览器 | 必须 | CDP 抓取、登录态复用、B 站 TV 二维码登录、QQ 频道网页发布 |
+| `ffmpeg` | 推荐 | HLS 兜底、音视频合并、水印处理 |
+| `yt-dlp` | 推荐 | YouTube、Instagram 和其他通用网站下载 |
 
-macOS:
+macOS：
 
 ```bash
 brew install ffmpeg yt-dlp
 ```
 
-Before the first real download or sync, log in to the sites you need in your normal browser, such as Bilibili, Douyin, Xiaohongshu, Instagram, YouTube, and QQ channels.
+第一次正式下载或同步前，先在自己的常用浏览器里登录需要访问的平台，例如 B 站、抖音、小红书、Instagram、YouTube 和 QQ 频道。
 
-## First Run And Login
+## 首次检查和登录
 
-Check browser, profile, CDP, ffmpeg, and yt-dlp:
+检查浏览器、profile、CDP、ffmpeg、yt-dlp 是否可用：
 
 ```bash
 videocp doctor
 ```
 
-Common checks:
+常见检查项：
 
-| Check | Meaning |
+| 检查项 | 含义 |
 | --- | --- |
-| `browser_detect` | Whether a Chrome-family browser was found |
-| `profile_seed` | Whether the app-owned browser profile was prepared |
-| `ffmpeg` | Whether ffmpeg is available |
-| `ytdlp` | Whether yt-dlp is available |
-| `cdp_startup` | Whether the browser can start and expose CDP |
+| `browser_detect` | 是否找到 Chrome 系浏览器 |
+| `profile_seed` | 是否成功准备工具专用浏览器 profile |
+| `ffmpeg` | 是否找到 ffmpeg |
+| `ytdlp` | 是否找到 yt-dlp |
+| `cdp_startup` | 浏览器是否能启动并暴露 CDP 端口 |
 
-For interactive login, keep the visible browser open. Finish logging in, then return to the terminal and press Enter to close the browser and save the profile state.
+如果需要手动登录，让可见浏览器保持打开。登录完成后回到终端按回车，浏览器会关闭并保存 profile 状态。
 
 ```bash
 videocp doctor --no-headless --keep-open
 ```
 
-Open specific login sites:
+也可以直接打开指定登录站点：
 
 ```bash
 videocp doctor --no-headless --keep-open \
@@ -105,13 +105,13 @@ videocp doctor --no-headless --keep-open \
   --login-url https://pd.qq.com/
 ```
 
-## Single Video Download
+## 单视频下载
 
 ```bash
-videocp download '<video URL or copied share text>'
+videocp download '<视频 URL 或复制分享文案>'
 ```
 
-Examples:
+示例：
 
 ```bash
 videocp download '7.86 复制打开抖音，看看【示例】 https://v.douyin.com/xxxxxx/'
@@ -122,27 +122,27 @@ videocp download 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 videocp download 'https://www.instagram.com/reel/DWQQpz5lLZD/'
 ```
 
-Specify output directory:
+指定输出目录：
 
 ```bash
 videocp download 'https://www.douyin.com/video/1234567890' --output-dir ./downloads
 ```
 
-Print JSON for scripting:
+输出 JSON，便于脚本调用：
 
 ```bash
 videocp download 'https://www.douyin.com/video/1234567890' --json
 ```
 
-Run with a visible browser:
+使用可见浏览器运行：
 
 ```bash
 videocp download '<url>' --no-headless
 ```
 
-## Profile Download
+## 主页批量下载
 
-Passing a profile URL expands it to recent videos first. The default count comes from `download.profile_videos_count` in `config.yaml`.
+传入账号主页 URL 时，`videocp` 会先展开最近视频，再逐条下载。默认数量来自 `config.yaml` 中的 `download.profile_videos_count`。
 
 ```bash
 videocp download 'https://www.douyin.com/user/MS4wLjABAAAAxxxxxx'
@@ -153,21 +153,21 @@ videocp download 'https://www.youtube.com/@hackbearterry/shorts'
 videocp download 'https://www.youtube.com/@hackbearterry/videos'
 ```
 
-Override the count:
+临时覆盖下载数量：
 
 ```bash
 videocp download 'https://space.bilibili.com/7612168' --profile-videos-count 5
 ```
 
-Notes:
+说明：
 
-- Douyin profile expansion skips pinned videos and downloads recent videos.
-- Bilibili space downloads use built-in TV mode; the first run may require QR scan.
-- YouTube, Instagram, and generic profile-like URLs rely on `yt-dlp` where possible.
+- 抖音主页展开会跳过置顶视频，只下载最近视频。
+- B 站空间下载使用内置 TV 模式，第一次可能需要扫码。
+- YouTube、Instagram 和其他通用主页类 URL 会尽量通过 `yt-dlp` 处理。
 
-## Batch Input
+## 批量输入
 
-Pass multiple inputs:
+命令行传多个输入：
 
 ```bash
 videocp download \
@@ -175,7 +175,7 @@ videocp download \
   'https://www.douyin.com/video/222'
 ```
 
-Prepare canonical links from mixed URLs or share text:
+把混合 URL 或分享文案整理成规范链接：
 
 ```bash
 videocp prepare-list \
@@ -184,52 +184,52 @@ videocp prepare-list \
   'https://www.bilibili.com/video/BV1764y1y76G/'
 ```
 
-Download from a file:
+从文件批量下载：
 
 ```bash
 videocp download --input-file ./links.txt
 ```
 
-`links.txt` uses one URL or share text per line. Empty lines and lines starting with `#` are ignored.
+`links.txt` 每行放一个 URL 或分享文案。空行和以 `#` 开头的注释行会被忽略。
 
-## Sync To QQ Channel
+## 同步到 QQ 频道
 
-`videocp sync` and `video sync` are equivalent. The command fetches latest videos from configured source profiles, downloads new items, publishes them with the configured method, and writes history for dedupe.
+`videocp sync` 和 `video sync` 等价。该命令会从配置的来源主页拉取最新视频，下载新内容，按配置方式发布，并写入历史记录用于去重。
 
-Typical flow:
+常用流程：
 
 ```bash
-# Check browser/CDP first
+# 先检查浏览器/CDP
 video doctor
 
-# Dry run without downloading or publishing
+# 演练模式：不下载、不发布
 video sync --dry-run
 
-# Run all tasks from tasks.yaml
+# 按 tasks.yaml 跑全部任务
 video sync
 
-# Run one task
+# 只跑一个任务
 video sync --task-name douyin-example
 
-# Process only the latest 1 video per task
+# 每个任务只处理最新 1 条
 video sync --count 1
 
-# JSON output
+# JSON 输出
 video sync --json
 ```
 
-Sync steps:
+同步步骤：
 
-1. Read `tasks.yaml`.
-2. Expand each task source profile to latest videos.
-3. Check `sync_history.json` and skip processed items.
-4. Download video files to `downloads`.
-5. Publish with `publish_method`.
-6. Append `sync_logs/YYYY-MM-DD.log`.
+1. 读取 `tasks.yaml`。
+2. 将每个任务的来源主页展开为最新视频。
+3. 查询 `sync_history.json`，跳过已处理内容。
+4. 下载视频文件到 `downloads`。
+5. 按 `publish_method` 发布。
+6. 追加写入 `sync_logs/YYYY-MM-DD.log`。
 
 ## tasks.yaml
 
-Minimal example:
+最小示例：
 
 ```yaml
 sync:
@@ -245,7 +245,7 @@ tasks:
     title_template: "{desc}"
 ```
 
-CDP publish example:
+CDP 发布示例：
 
 ```yaml
 sync:
@@ -260,43 +260,43 @@ tasks:
     title_template: "{desc}"
 ```
 
-Task fields:
+任务字段：
 
-| Field | Description |
+| 字段 | 说明 |
 | --- | --- |
-| `sync.history_file` | Dedupe history file |
-| `sync.skill_dir` | Local `tencent-channel-community` skill path for `publish_method: skill` |
-| `sync.videos_per_task` | Default latest video count per task |
-| `sync.publish_method` | Global publish method: `skill`, `cdp`, or `youtube` |
-| `sync.skip_rate` | Random skip probability; pinned videos are always synced |
-| `sync.max_video_duration_secs` | Optional max duration filter; `0` disables it |
-| `tasks[].name` | Unique task name used for filtering and history |
-| `tasks[].source_url` | Source profile URL or single video URL |
-| `tasks[].guild_id` | Required for `publish_method: cdp` |
-| `tasks[].title_template` | Supports `{desc}`, `{title}`, `{author}`, `{site}`, `{content_id}` |
-| `tasks[].content_template` | Supports the same placeholders |
-| `tasks[].feed_type` | Feed type used by skill publishing |
-| `tasks[].count` | Per-task override for `videos_per_task` |
-| `tasks[].publish_method` | Per-task override for publish method |
-| `tasks[].skip_rate` | Per-task override for random skip probability |
+| `sync.history_file` | 去重历史文件 |
+| `sync.skill_dir` | `publish_method: skill` 使用的本地 `tencent-channel-community` skill 路径 |
+| `sync.videos_per_task` | 每个任务默认处理的最新视频数量 |
+| `sync.publish_method` | 全局发布方式：`skill`、`cdp` 或 `youtube` |
+| `sync.skip_rate` | 随机跳过概率；置顶视频总是同步 |
+| `sync.max_video_duration_secs` | 可选最长时长过滤；`0` 表示禁用 |
+| `tasks[].name` | 任务唯一名称，用于过滤和历史记录 |
+| `tasks[].source_url` | 来源主页 URL 或单视频 URL |
+| `tasks[].guild_id` | `publish_method: cdp` 必填 |
+| `tasks[].title_template` | 支持 `{desc}`、`{title}`、`{author}`、`{site}`、`{content_id}` |
+| `tasks[].content_template` | 支持同样的占位符 |
+| `tasks[].feed_type` | skill 发布使用的帖子类型 |
+| `tasks[].count` | 单任务覆盖 `videos_per_task` |
+| `tasks[].publish_method` | 单任务覆盖发布方式 |
+| `tasks[].skip_rate` | 单任务覆盖随机跳过概率 |
 
-Publish methods:
+发布方式：
 
-| Method | Use case | Notes |
+| 方式 | 适用场景 | 注意事项 |
 | --- | --- | --- |
-| `skill` | Publish through local `tencent-channel-community` skill | Publishes with author identity; configured `guild_id` / `channel_id` are ignored |
-| `cdp` | Publish through real QQ channel web page | Requires `guild_id` and a logged-in browser |
-| `youtube` | Publish to YouTube | Requires a logged-in browser |
+| `skill` | 通过本地 `tencent-channel-community` skill 发布 | 按作者身份发布；配置的 `guild_id` / `channel_id` 会被忽略 |
+| `cdp` | 通过真实 QQ 频道网页发布 | 需要 `guild_id`，且浏览器已登录 |
+| `youtube` | 发布到 YouTube | 需要浏览器已登录对应账号 |
 
-Sync notes:
+同步说明：
 
-- Entries with status `ok`, `skipped_unavailable`, `skipped_random`, or `skipped_duration` are treated as processed and skipped later.
-- If a source video is unavailable, such as YouTube members-only content, sync marks it as `skipped_unavailable` instead of failing the whole run.
-- After a successful `cdp` publish, the browser page stays open briefly before closing.
+- 状态为 `ok`、`skipped_unavailable`、`skipped_random` 或 `skipped_duration` 的记录会被视为已处理，后续会跳过。
+- 如果来源视频不可下载，例如 YouTube 会员专属内容，sync 会标记为 `skipped_unavailable`，而不是让整次任务失败。
+- `cdp` 发布成功后，浏览器页面会短暂停留再关闭。
 
-## Configuration
+## 配置
 
-The CLI reads `config.yaml`, and `sync` also reads `tasks.yaml`, searching from the current directory upward. CLI arguments override config values.
+CLI 会从当前目录向上查找 `config.yaml`；`sync` 还会读取 `tasks.yaml`。命令行参数优先级高于配置文件。
 
 ```yaml
 download:
@@ -321,22 +321,22 @@ watermark:
   model: google/gemini-3-flash-preview
 ```
 
-Config fields:
+配置字段：
 
-| Field | Description |
+| 字段 | 说明 |
 | --- | --- |
-| `download.output_dir` | Output directory |
-| `download.max_concurrent` | Total concurrent download jobs |
-| `download.max_concurrent_per_site` | Per-site concurrency limit |
-| `download.start_interval_secs` | Delay between starting jobs |
-| `download.profile_videos_count` | Default latest video count for profile URLs |
-| `browser.profile_dir` | App-owned Chrome profile directory |
-| `browser.browser_path` | Chrome executable path; empty means auto-detect |
-| `browser.headless` | Whether to run without a visible browser window |
-| `request.timeout_secs` | Page and request timeout |
-| `watermark.enabled` | Enable Bilibili watermark detection/removal |
+| `download.output_dir` | 输出目录 |
+| `download.max_concurrent` | 总并发下载任务数 |
+| `download.max_concurrent_per_site` | 单平台并发限制 |
+| `download.start_interval_secs` | 任务启动间隔 |
+| `download.profile_videos_count` | 主页 URL 默认展开的最新视频数量 |
+| `browser.profile_dir` | 工具专用 Chrome profile 目录 |
+| `browser.browser_path` | Chrome 可执行文件路径；为空时自动探测 |
+| `browser.headless` | 是否无可见窗口运行 |
+| `request.timeout_secs` | 页面和请求超时时间 |
+| `watermark.enabled` | 是否启用 B 站水印检测/移除 |
 
-Common CLI overrides:
+常用命令行覆盖：
 
 ```bash
 videocp download '<url>' --output-dir ./tmp --no-headless --timeout-secs 60
@@ -345,62 +345,62 @@ videocp download '<url>' --browser-path '/Applications/Google Chrome.app/Content
 videocp download --input-file ./links.txt --json
 ```
 
-## Demo Script
+## 演示脚本
 
-Suggested order for a short internal demo:
+内部分享可以按下面顺序演示：
 
 ```bash
-# 1. Commands and environment
+# 1. 查看命令和环境
 videocp --help
 videocp doctor --no-headless --keep-open --login-url https://www.bilibili.com/
 
-# 2. Single video download
+# 2. 单视频下载
 videocp download 'https://www.bilibili.com/video/BV1764y1y76G/'
 
-# 3. Prepare copied share text into a txt list
-videocp prepare-list --output-file ./links.txt '<copied share text>'
+# 3. 把复制分享文案整理成 txt 链接列表
+videocp prepare-list --output-file ./links.txt '<复制来的分享文案>'
 cat ./links.txt
 
-# 4. Batch download from file
+# 4. 从文件批量下载
 videocp download --input-file ./links.txt
 
-# 5. Profile latest N videos
+# 5. 抓取主页最新 N 条视频
 videocp download 'https://space.bilibili.com/7612168' --profile-videos-count 3
 
-# 6. Sync dry run
+# 6. 同步任务演练
 video sync --dry-run --count 1
 ```
 
-Use `--no-headless --keep-open` during the first demo so people can see login and QR flows. Switch back to headless mode once the profile is ready.
+第一次演示建议用 `--no-headless --keep-open`，方便看到登录和扫码流程。profile 准备好后再切回无头模式。
 
-## Troubleshooting
+## 常见问题
 
-| Symptom | Possible cause | Fix |
+| 现象 | 可能原因 | 处理方式 |
 | --- | --- | --- |
-| `No Chrome-family browser found` | Chrome-family browser is missing or not auto-detected | Install Chrome or pass `--browser-path` |
-| `doctor --no-headless` closes quickly | `doctor` is a health check by default | Use `videocp doctor --no-headless --keep-open` |
-| `cdp_startup` fails | Browser cannot start or CDP port is unavailable | Retry with `--no-headless`; check browser path and profile permissions |
-| Douyin/Xiaohongshu cannot extract video | Not logged in, anti-bot page, expired link | Log in first and retry with `--no-headless` |
-| First Bilibili download waits for login | TV mode needs one-time QR authorization | Scan the QR code; token is cached afterward |
-| YouTube/Instagram download fails | `yt-dlp` missing or authenticated cookies unavailable | Install `yt-dlp` and confirm browser login |
-| HLS download or muxing fails | `ffmpeg` missing | Install ffmpeg |
-| `download --input-file` skips a line | Empty lines and `#` comments are ignored | Check that the line contains a real URL |
-| `sync` keeps skipping an item | Existing record in `sync_history.json` | Confirm it was already processed; edit only that history entry if needed |
-| `sync --task-name` finds no task | Task name mismatch | Copy the exact `tasks[].name` value |
+| `No Chrome-family browser found` | 没安装 Chrome 系浏览器，或无法自动探测 | 安装 Chrome，或传 `--browser-path` |
+| `doctor --no-headless` 窗口很快关闭 | `doctor` 默认只是健康检查 | 使用 `videocp doctor --no-headless --keep-open` |
+| `cdp_startup` 失败 | 浏览器无法启动，或 CDP 端口不可用 | 用 `--no-headless` 重试，检查浏览器路径和 profile 权限 |
+| 抖音/小红书无法提取视频 | 未登录、遇到风控页、链接失效 | 先登录，再用 `--no-headless` 重试 |
+| B 站第一次下载等待登录 | TV 模式需要一次二维码授权 | 扫码登录；token 后续会缓存 |
+| YouTube/Instagram 下载失败 | 缺少 `yt-dlp`，或没有可用登录态 cookie | 安装 `yt-dlp`，确认浏览器已登录 |
+| HLS 下载或音视频合并失败 | 缺少 `ffmpeg` | 安装 ffmpeg |
+| `download --input-file` 跳过某一行 | 空行和 `#` 注释行会被忽略 | 检查该行是否包含真实 URL |
+| `sync` 一直跳过某条内容 | `sync_history.json` 已有记录 | 确认是否已处理；必要时只编辑对应历史记录 |
+| `sync --task-name` 找不到任务 | 任务名不匹配 | 复制完整的 `tasks[].name` 值 |
 
-## Safety Notes
+## 安全注意事项
 
-- Do not commit or share `.env`, browser profiles, cookies, or account tokens.
-- `sync_history.json` and `sync_logs/` may include publish records, share URLs, and local video paths.
-- `downloads/` contains the actual videos; follow copyright and internal distribution rules.
-- For new sync tasks, run `video sync --dry-run --count 1` before publishing.
-- For new publishing setup, run visible mode first, then switch back to `headless: true`.
+- 不要提交或分享 `.env`、浏览器 profile、cookie 或账号 token。
+- `sync_history.json` 和 `sync_logs/` 可能包含发布记录、分享链接和本地视频路径。
+- `downloads/` 里是实际视频文件，请遵守版权和内部传播规则。
+- 新增 sync 任务时，先运行 `video sync --dry-run --count 1` 再正式发布。
+- 新配置发布能力时，先用可见模式跑通，再切回 `headless: true`。
 
-## Additional Notes
+## 其他说明
 
-- First run copies local Chrome profile state into an app-owned cache directory; later runs sync newly added browser profiles into that copied profile.
-- Download runs reuse a dedicated Chrome instance, reconnect to an already running instance when possible, and open one tab per input.
-- Browser extraction and file downloads can overlap across inputs while reusing the same Chrome instance.
-- The downloader tries no-watermark candidates first and falls back to stable playable assets.
-- Single-video pages and user profile pages are supported. Live streams, albums, and playlists are out of scope.
-- URLs not matching built-in providers are automatically routed to `yt-dlp`.
+- 首次运行会把本地 Chrome profile 状态复制到工具专用缓存目录；后续运行会同步新增的浏览器 profile。
+- 下载任务会复用一个专用 Chrome 实例；如果已有实例运行，会尽量重连。
+- 浏览器提取和文件下载可以并发执行，同时复用同一个 Chrome 实例。
+- 下载器会优先尝试无水印候选，失败后回退到稳定可播放资源。
+- 当前支持单视频页和用户主页。直播、相册和播放列表不在支持范围内。
+- 不匹配内置 provider 的 URL 会自动交给 `yt-dlp`。

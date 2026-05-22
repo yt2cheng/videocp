@@ -62,6 +62,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor_parser.set_defaults(headless=None)
     doctor_parser.add_argument("--json", action="store_true", help="Print result as JSON.")
+    doctor_parser.add_argument(
+        "--keep-open",
+        action="store_true",
+        help="Keep the visible browser open until Enter is pressed; useful for logging in.",
+    )
+    doctor_parser.add_argument(
+        "--login-url",
+        dest="login_urls",
+        action="append",
+        default=[],
+        help="Open this URL while --keep-open is active. Can be passed multiple times.",
+    )
 
     sync_parser = subparsers.add_parser("sync", help="Sync latest videos to QQ channels.")
     sync_parser.add_argument("--tasks-file", default=None, help="Path to tasks.yaml.")
@@ -239,6 +251,8 @@ def main(argv: list[str] | None = None) -> int:
                 profile_dir=config.profile_dir,
                 browser_path=config.browser_path,
                 headless=config.headless,
+                keep_open=args.keep_open,
+                login_urls=list(args.login_urls),
             )
         )
         payload = [check.to_dict() for check in checks]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from videocp.browser import BrowserConfig, BrowserSession, probe_cdp_endpoint
@@ -10,10 +11,25 @@ from videocp.models import DoctorCheck
 from videocp.profile import detect_system_browser_executable, prepare_profile_seed_once
 
 
+def _open_login_urls(browser: BrowserSession, login_urls: list[str]) -> None:
+    if not login_urls:
+        return
+    for url in login_urls:
+        page = browser.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        except Exception:
+            # The user can still use the visible tab manually even if a site
+            # blocks automation navigation or times out during initial load.
+            pass
+
+
 def run_doctor(
     profile_dir: Path,
     browser_path: str,
     headless: bool,
+    keep_open: bool = False,
+    login_urls: list[str] | None = None,
 ) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
     resolved_browser = browser_path or detect_system_browser_executable()
@@ -70,6 +86,17 @@ def run_doctor(
                     str(version_probe),
                 )
             )
+            if keep_open:
+                _open_login_urls(browser, login_urls or [])
+                print(
+                    "Browser is open for login. Finish logging in, then press Enter here to close it.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                try:
+                    input()
+                except EOFError:
+                    pass
     except Exception as exc:
         checks.append(DoctorCheck("cdp_startup", False, str(exc)))
 

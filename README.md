@@ -43,6 +43,7 @@ brew install ffmpeg yt-dlp
 先在自己浏览器登录b站，抖音，小红书，Instagram 等需要登录的网站
 ```bash
 videocp doctor
+videocp doctor --no-headless --keep-open --login-url https://www.douyin.com/ --login-url https://pd.qq.com/
 
 # 单视频下载
 videocp download '7.86 复制打开抖音，看看【示例】 https://v.douyin.com/xxxxxx/'

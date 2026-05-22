@@ -72,6 +72,8 @@ class DoctorOptions:
     profile_dir: Path
     browser_path: str
     headless: bool
+    keep_open: bool = False
+    login_urls: list[str] | None = None
 
 
 class StartIntervalGate:
@@ -656,4 +658,6 @@ def doctor(options: DoctorOptions) -> list[DoctorCheck]:
         profile_dir=options.profile_dir or default_profile_dir(),
         browser_path=options.browser_path,
         headless=options.headless,
+        keep_open=options.keep_open,
+        login_urls=options.login_urls,
     )

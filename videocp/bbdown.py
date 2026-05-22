@@ -87,6 +87,7 @@ class BilibiliPageInfo:
     title: str
     desc: str
     author: str
+    duration_secs: int = 0
 
 
 def bbdown_state_dir(profile_dir: Path) -> Path:
@@ -144,6 +145,7 @@ def download_bilibili_with_bbdown(
     watermark: WatermarkConfig | None = None,
     metadata_seed: VideoMetadata | None = None,
     author_hint: str = "",
+    max_video_duration_secs: int = 0,
 ) -> tuple[ExtractionResult, DownloadArtifact]:
     token = ensure_bbdown_tv_token(browser_config, timeout_secs=timeout_secs)
     page_info = fetch_bilibili_page_info(source_url, timeout_secs=timeout_secs, author_hint=author_hint)
@@ -171,6 +173,19 @@ def download_bilibili_with_bbdown(
             "access_token": "present" if token else "missing",
         },
     )
+    if max_video_duration_secs > 0 and metadata.duration_ms > max_video_duration_secs * 1000:
+        duration_secs = metadata.duration_ms / 1000
+        log_info(
+            "download.skip_duration",
+            site=metadata.site,
+            content_id=metadata.content_id or "unknown",
+            duration_secs=f"{duration_secs:.1f}",
+            max_video_duration_secs=max_video_duration_secs,
+        )
+        raise DownloadError(
+            "video duration exceeds limit: "
+            f"duration_secs={duration_secs:.1f} max_video_duration_secs={max_video_duration_secs}"
+        )
     artifact = download_best_candidate(
         extraction,
         output_dir=output_dir,
@@ -200,6 +215,7 @@ def fetch_bilibili_page_info(source_url: str, timeout_secs: int, author_hint: st
         title=str(data.get("title") or "").strip(),
         desc=str(data.get("desc") or "").strip(),
         author=str((data.get("owner") or {}).get("name") or author_hint).strip(),
+        duration_secs=int(data.get("duration") or 0),
     )
 
 
@@ -219,6 +235,7 @@ def build_bbdown_metadata(
         author=page_info.author or (metadata_seed.author if metadata_seed else "") or author_hint,
         desc=page_info.desc or (metadata_seed.desc if metadata_seed else ""),
         title=page_info.title or (metadata_seed.title if metadata_seed else ""),
+        duration_ms=page_info.duration_secs * 1000 if page_info.duration_secs > 0 else 0,
     )
     if author_hint and not metadata.author:
         metadata.author = author_hint

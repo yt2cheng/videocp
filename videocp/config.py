@@ -177,6 +177,7 @@ class SyncConfig:
     videos_per_task: int = 1
     publish_method: str = "skill"  # "skill" | "cdp"
     skip_rate: float = 0.5  # 0.0–1.0, probability of skipping each video
+    max_video_duration_secs: int = 0  # 0 disables duration filtering
 
 
 def find_tasks_path(start_dir: Path | None = None) -> Path | None:
@@ -218,6 +219,7 @@ def load_sync_config(tasks_path: Path | None = None, start_dir: Path | None = No
         field_name="sync.publish_method",
     )
     global_skip_rate = float(sync_raw.get("skip_rate", 0.5))
+    max_video_duration_secs = int(sync_raw.get("max_video_duration_secs", 0) or 0)
 
     tasks: list[SyncTaskConfig] = []
     for i, raw in enumerate(tasks_raw):
@@ -258,4 +260,12 @@ def load_sync_config(tasks_path: Path | None = None, start_dir: Path | None = No
             skip_rate=float(raw.get("skip_rate", -1)),
         ))
 
-    return SyncConfig(history_file=history_file, skill_dir=skill_dir, tasks=tasks, videos_per_task=videos_per_task, publish_method=global_publish_method, skip_rate=global_skip_rate)
+    return SyncConfig(
+        history_file=history_file,
+        skill_dir=skill_dir,
+        tasks=tasks,
+        videos_per_task=videos_per_task,
+        publish_method=global_publish_method,
+        skip_rate=global_skip_rate,
+        max_video_duration_secs=max(0, max_video_duration_secs),
+    )

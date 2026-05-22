@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from videocp.browser import BrowserConfig
+from videocp.app import DownloadJobResult
 from videocp.config import AppConfig, SyncConfig, SyncTaskConfig, WatermarkConfig
 from videocp.models import ParsedInput
 from videocp.publisher import PublishResult
@@ -160,3 +161,59 @@ def test_skip_rate_task_override(tmp_path, monkeypatch):
     result = _sync_one_video(**_make_sync_args(tmp_path, monkeypatch, task_skip_rate=0.0, global_skip_rate=1.0))
     assert result.ok is True
     assert result.action == "synced"
+
+
+def test_sync_skips_videos_over_duration_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr("videocp.sync.find_processed_entry", lambda *a, **k: None)
+    monkeypatch.setattr("videocp.sync._find_existing_download", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "videocp.sync._run_download_jobs",
+        lambda **kw: [
+            DownloadJobResult(
+                raw_input="https://example.com/v/c1",
+                parsed_input=kw["prepared_inputs"][0],
+                extraction=None,
+                artifact=None,
+                error="video duration exceeds limit: duration_secs=1801.0 max_video_duration_secs=1800",
+            )
+        ],
+    )
+
+    result = _sync_one_video(
+        task=SyncTaskConfig(name="t", source_url="https://example.com/profile", guild_id="", channel_id=""),
+        video_input=ParsedInput(
+            raw_input="https://example.com/v/c1",
+            extracted_url="https://example.com/v/c1",
+            canonical_url="https://example.com/v/c1",
+        ),
+        app_cfg=AppConfig(
+            output_dir=tmp_path / "downloads",
+            profile_dir=tmp_path / "p",
+            browser_path="/usr/bin/chrome",
+            headless=False,
+            timeout_secs=30,
+            max_concurrent=1,
+            max_concurrent_per_site=1,
+            start_interval_secs=0.0,
+            watermark=WatermarkConfig(),
+        ),
+        sync_cfg=SyncConfig(
+            history_file=tmp_path / "h.json",
+            skill_dir=tmp_path / "s",
+            tasks=[],
+            publish_method="skill",
+            skip_rate=0.0,
+            max_video_duration_secs=1800,
+        ),
+        browser_config=BrowserConfig(
+            profile_dir=tmp_path / "p",
+            browser_path="/usr/bin/chrome",
+            cdp_url="http://127.0.0.1:9222",
+            headless=False,
+        ),
+        history=SyncHistory(path=tmp_path / "h.json"),
+        dry_run=False,
+    )
+
+    assert result.ok is True
+    assert result.action == "skipped_duration"

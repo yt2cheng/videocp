@@ -63,6 +63,7 @@ class VideoMetadata:
     author: str = ""
     desc: str = ""
     title: str = ""
+    duration_ms: int = 0
 
     @property
     def content_id(self) -> str:

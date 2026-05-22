@@ -5,6 +5,7 @@ import pytest
 from videocp.cdp_publisher import (
     UploadNetworkTracker,
     UploadRequestInfo,
+    UPLOAD_INPUT_SELECTOR,
     _build_feed_detail_url,
     _classify_upload_request,
     _extract_publish_outcome,
@@ -21,8 +22,9 @@ class FakePage:
         self.evaluate_results = list(evaluate_results)
         self.wait_calls: list[int] = []
 
-    def evaluate(self, script):
+    def evaluate(self, script, arg=None):
         del script
+        del arg
         if not self.evaluate_results:
             raise AssertionError("No more evaluate() results queued")
         return self.evaluate_results.pop(0)
@@ -186,7 +188,7 @@ def test_set_video_input_files_uses_attached_state(tmp_path):
 
     _set_video_input_files(page, video_path)
 
-    assert page.locator_calls == [".image-video-container input[type=file][accept*='video']"]
+    assert page.locator_calls == [UPLOAD_INPUT_SELECTOR]
     assert page.file_locator.wait_args == [("attached", 5000)]
     assert page.file_locator.files == [str(video_path.resolve())]
 

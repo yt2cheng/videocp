@@ -84,10 +84,33 @@ def douyin_watermark_mode(url: str, semantic_tag: str = "") -> WatermarkMode:
 def _parse_int(value: object) -> int:
     if isinstance(value, int):
         return value
+    if isinstance(value, float):
+        return int(value)
     if not isinstance(value, str):
         return 0
     match = re.search(r"\d+", value)
     return int(match.group(0)) if match else 0
+
+
+def _parse_float(value: object) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return 0.0
+    match = re.search(r"\d+(?:\.\d+)?", value)
+    return float(match.group(0)) if match else 0.0
+
+
+def _seconds_to_ms(value: object) -> int:
+    seconds = _parse_float(value)
+    return int(seconds * 1000) if seconds > 0 else 0
+
+
+def _milliseconds_to_ms(value: object) -> int:
+    millis = _parse_int(value)
+    if millis <= 0:
+        return 0
+    return millis if millis >= 1000 else millis * 1000
 
 
 def douyin_candidate_bitrate(candidate: MediaCandidate) -> int:
@@ -299,6 +322,10 @@ class SiteProvider(ABC):
             author = normalize_author_name(snapshot.get("author_text", ""))
             if author:
                 metadata.author = author
+        if metadata.duration_ms <= 0:
+            duration_ms = _seconds_to_ms(snapshot.get("video_duration", ""))
+            if duration_ms > 0:
+                metadata.duration_ms = duration_ms
         if not metadata.aweme_id:
             for candidate_url in (metadata.page_url, metadata.canonical_url, metadata.source_url):
                 for pattern in self.id_patterns:
@@ -416,7 +443,6 @@ class DouyinProvider(SiteProvider):
         return rewritten
 
     def populate_metadata_from_dict(self, metadata: VideoMetadata, payload: dict, path: str) -> None:
-        del path
         if not metadata.aweme_id:
             aweme_id = payload.get("aweme_id") or payload.get("group_id")
             if isinstance(aweme_id, str):
@@ -428,6 +454,26 @@ class DouyinProvider(SiteProvider):
             nickname = author.get("nickname")
             if isinstance(nickname, str):
                 metadata.author = nickname
+        if metadata.duration_ms <= 0:
+            duration_ms = self._extract_duration_ms(payload, path)
+            if duration_ms > 0:
+                metadata.duration_ms = duration_ms
+
+    def _extract_duration_ms(self, payload: dict, path: str) -> int:
+        if "duration" not in payload:
+            return 0
+        lowered_path = path.lower()
+        if ".music" in lowered_path or ".audio" in lowered_path:
+            return 0
+        is_video_payload = (
+            self._payload_aweme_id(payload) != ""
+            or lowered_path.endswith(".video")
+            or any(
+                key in payload
+                for key in ("play_addr", "play_addr_h264", "play_addr_265", "play_addr_lowbr", "download_addr", "bit_rate")
+            )
+        )
+        return _milliseconds_to_ms(payload.get("duration")) if is_video_payload else 0
 
     def _payload_aweme_id(self, payload: dict) -> str:
         aweme_id = payload.get("aweme_id") or payload.get("group_id")
@@ -561,6 +607,14 @@ class BilibiliProvider(SiteProvider):
                 name = owner.get("name")
                 if isinstance(name, str):
                     metadata.author = name
+            if metadata.duration_ms <= 0:
+                duration_ms = _seconds_to_ms(video_data.get("duration"))
+                if duration_ms > 0:
+                    metadata.duration_ms = duration_ms
+        if metadata.duration_ms <= 0 and any(key in payload for key in ("bvid", "aid", "cid")):
+            duration_ms = _seconds_to_ms(payload.get("duration"))
+            if duration_ms > 0:
+                metadata.duration_ms = duration_ms
 
     def _add_stream_urls(self, accumulator, stream: dict, stream_type: str, path: str) -> None:
         for key in ("baseUrl", "base_url"):

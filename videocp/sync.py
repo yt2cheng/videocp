@@ -41,7 +41,7 @@ class SyncTaskResult:
     task_name: str
     ok: bool
     content_id: str = ""
-    action: str = ""  # "synced" | "skipped" | "skipped_unavailable" | "no_new_video" | "failed"
+    action: str = ""  # "synced" | "skipped" | "skipped_unavailable" | "skipped_duration" | "no_new_video" | "failed"
     error: str = ""
     feed_id: str = ""
     share_url: str = ""
@@ -190,6 +190,15 @@ def _sync_one_video(
             if processed_entry.status == "skipped_random":
                 log_info("sync.task.skip_random_prev", task=task.name, content_id=content_id)
                 return SyncTaskResult(task_name=task.name, ok=True, content_id=content_id, action="skipped_random")
+            if processed_entry.status == "skipped_duration":
+                log_info("sync.task.skip_duration_prev", task=task.name, content_id=content_id)
+                return SyncTaskResult(
+                    task_name=task.name,
+                    ok=True,
+                    content_id=content_id,
+                    action="skipped_duration",
+                    error=processed_entry.error,
+                )
             log_info("sync.task.skip_unavailable", task=task.name, content_id=content_id)
             return SyncTaskResult(
                 task_name=task.name,
@@ -237,10 +246,30 @@ def _sync_one_video(
                 max_concurrent_per_site=1,
                 start_interval_secs=0,
                 watermark=app_cfg.watermark,
+                max_video_duration_secs=sync_cfg.max_video_duration_secs,
             )
 
             if not job_results or not job_results[0].ok:
                 error = job_results[0].error if job_results else "download returned no results"
+                if _is_duration_limit_error(error):
+                    log_info("sync.task.skip_duration", task=task.name, content_id=content_id, error=error)
+                    add_entry(history, SyncHistoryEntry(
+                        task_name=task.name,
+                        content_id=content_id,
+                        site="",
+                        author="",
+                        desc="",
+                        output_path="",
+                        status="skipped_duration",
+                        error=error,
+                    ))
+                    return SyncTaskResult(
+                        task_name=task.name,
+                        ok=True,
+                        content_id=content_id,
+                        action="skipped_duration",
+                        error=error,
+                    )
                 if _is_skippable_download_error(error):
                     log_info("sync.task.download_skipped", task=task.name, content_id=content_id, reason="members_only")
                     add_entry(history, SyncHistoryEntry(
@@ -414,6 +443,10 @@ def _is_skippable_download_error(error: str) -> bool:
         or "会员专享" in normalized
         or "join this channel to get access to members-only content" in normalized
     )
+
+
+def _is_duration_limit_error(error: str) -> bool:
+    return "video duration exceeds limit" in (error or "").lower()
 
 
 class _SafeFormatMap(dict):

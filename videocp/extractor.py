@@ -151,6 +151,7 @@ def capture_dom_snapshot(page: Page) -> dict[str, str]:
               og_description: meta("og:description"),
               description: meta("description"),
               og_type: meta("og:type"),
+              video_duration: Number.isFinite(video?.duration) ? String(video.duration) : "",
               video_src: video?.currentSrc || video?.src || "",
               author_text: firstText([
                 '.author-wrapper .info .name',
@@ -266,6 +267,7 @@ def extract_video(page: Page, source_url: str, timeout_secs: int) -> ExtractionR
         "markup_payload_count": accumulator.markup_payload_count,
         "candidate_count": len(candidates),
         "title": snapshot.get("title", ""),
+        "duration_ms": accumulator.metadata.duration_ms,
     }
     top_candidates = "; ".join(
         f"{candidate.kind.value}/{candidate.track_type.value}/{candidate.watermark_mode.value}/{candidate.source}"
@@ -279,6 +281,7 @@ def extract_video(page: Page, source_url: str, timeout_secs: int) -> ExtractionR
         events=accumulator.event_count,
         json_payloads=accumulator.json_event_count,
         candidates=len(candidates),
+        duration_ms=accumulator.metadata.duration_ms or None,
         top_candidates=top_candidates,
     )
     return ExtractionResult(

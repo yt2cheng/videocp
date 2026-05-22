@@ -34,6 +34,7 @@ class YtdlpMetadata:
     uploader: str
     site: str
     url: str
+    duration_secs: float = 0.0
 
 
 def write_netscape_cookies(cookies: list[dict[str, Any]], path: Path) -> None:
@@ -54,6 +55,13 @@ def write_netscape_cookies(cookies: list[dict[str, Any]], path: Path) -> None:
 def is_ytdlp_playlist_url(url: str) -> bool:
     """Check if a URL looks like a playlist/profile page handled by yt-dlp."""
     return any(pattern.search(url) for pattern in _PLAYLIST_PATTERNS)
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 @dataclass(slots=True)
@@ -137,6 +145,7 @@ def fetch_ytdlp_metadata(url: str, cookies_file: Path | None = None) -> YtdlpMet
         uploader=str(data.get("uploader", data.get("channel", data.get("uploader_id", "")))),
         site=str(data.get("extractor_key", data.get("extractor", ""))).lower(),
         url=url,
+        duration_secs=_safe_float(data.get("duration")),
     )
     log_info(
         "ytdlp.metadata.complete",
@@ -144,6 +153,7 @@ def fetch_ytdlp_metadata(url: str, cookies_file: Path | None = None) -> YtdlpMet
         title=meta.title,
         uploader=meta.uploader,
         site=meta.site,
+        duration_secs=f"{meta.duration_secs:.1f}" if meta.duration_secs else None,
     )
     return meta
 

@@ -19,6 +19,7 @@ from videocp.downloader import (
     download_best_candidate,
     sanitize_filename,
 )
+from videocp.errors import DownloadError
 from videocp.extractor import extract_video
 from videocp.input_parser import parse_input
 from videocp.models import (
@@ -74,6 +75,25 @@ class DoctorOptions:
     headless: bool
     keep_open: bool = False
     login_urls: list[str] | None = None
+
+
+def _raise_if_duration_exceeds_limit(extraction: ExtractionResult, max_duration_secs: int) -> None:
+    if max_duration_secs <= 0 or extraction.metadata.duration_ms <= 0:
+        return
+    duration_secs = extraction.metadata.duration_ms / 1000
+    if duration_secs <= max_duration_secs:
+        return
+    log_info(
+        "download.skip_duration",
+        site=extraction.metadata.site,
+        content_id=extraction.metadata.content_id or "unknown",
+        duration_secs=f"{duration_secs:.1f}",
+        max_video_duration_secs=max_duration_secs,
+    )
+    raise DownloadError(
+        "video duration exceeds limit: "
+        f"duration_secs={duration_secs:.1f} max_video_duration_secs={max_duration_secs}"
+    )
 
 
 class StartIntervalGate:
@@ -271,7 +291,9 @@ def _download_extraction_artifact(
     output_dir: Path,
     timeout_secs: int,
     watermark: WatermarkConfig | None = None,
+    max_video_duration_secs: int = 0,
 ) -> DownloadArtifact:
+    _raise_if_duration_exceeds_limit(extraction, max_video_duration_secs)
     return download_best_candidate(extraction, output_dir=output_dir, timeout_secs=timeout_secs, watermark=watermark)
 
 
@@ -281,15 +303,19 @@ def _download_bilibili_input(
     output_dir: Path,
     timeout_secs: int,
     watermark: WatermarkConfig | None = None,
+    max_video_duration_secs: int = 0,
 ) -> tuple[ExtractionResult, DownloadArtifact]:
-    return download_bilibili_with_bbdown(
-        source_url=parsed.canonical_url,
-        browser_config=browser_config,
-        output_dir=output_dir,
-        timeout_secs=timeout_secs,
-        watermark=watermark,
-        author_hint=parsed.author_hint,
-    )
+    kwargs = {
+        "source_url": parsed.canonical_url,
+        "browser_config": browser_config,
+        "output_dir": output_dir,
+        "timeout_secs": timeout_secs,
+        "watermark": watermark,
+        "author_hint": parsed.author_hint,
+    }
+    if max_video_duration_secs > 0:
+        kwargs["max_video_duration_secs"] = max_video_duration_secs
+    return download_bilibili_with_bbdown(**kwargs)
 
 
 def _download_ytdlp_input(
@@ -297,6 +323,7 @@ def _download_ytdlp_input(
     browser_config: BrowserConfig,
     output_dir: Path,
     timeout_secs: int,
+    max_video_duration_secs: int = 0,
 ) -> tuple[ExtractionResult, DownloadArtifact]:
     """Download a video via yt-dlp, using cookies from the CDP browser."""
     # Get cookies from the browser session
@@ -326,6 +353,7 @@ def _download_ytdlp_input(
             author=meta.uploader,
             desc=meta.title,
             title=meta.title,
+            duration_ms=int(meta.duration_secs * 1000) if meta.duration_secs > 0 else 0,
         )
         candidate = MediaCandidate(
             url=parsed.canonical_url,
@@ -345,6 +373,7 @@ def _download_ytdlp_input(
         )
 
         # Allocate output path
+        _raise_if_duration_exceeds_limit(extraction, max_video_duration_secs)
         subdir = build_output_subdir(extraction)
         stem = build_output_stem(extraction)
         output_path = allocate_output_path(output_dir, subdir, stem)
@@ -398,6 +427,7 @@ def _run_download_jobs(
     max_concurrent_per_site: int,
     start_interval_secs: float,
     watermark: WatermarkConfig | None = None,
+    max_video_duration_secs: int = 0,
 ) -> list[DownloadJobResult]:
     results: list[DownloadJobResult | None] = [None] * len(prepared_inputs)
     total_limit = max(1, max_concurrent)
@@ -443,12 +473,15 @@ def _run_download_jobs(
                 url=full_url(parsed.canonical_url),
             )
             if parsed.provider_key == "ytdlp":
-                extraction, artifact = _download_ytdlp_input(
-                    parsed=parsed,
-                    browser_config=browser_config,
-                    output_dir=output_dir,
-                    timeout_secs=timeout_secs,
-                )
+                kwargs = {
+                    "parsed": parsed,
+                    "browser_config": browser_config,
+                    "output_dir": output_dir,
+                    "timeout_secs": timeout_secs,
+                }
+                if max_video_duration_secs > 0:
+                    kwargs["max_video_duration_secs"] = max_video_duration_secs
+                extraction, artifact = _download_ytdlp_input(**kwargs)
                 results[index] = DownloadJobResult(
                     raw_input=parsed.raw_input,
                     parsed_input=parsed,
@@ -463,13 +496,16 @@ def _run_download_jobs(
                     output=artifact.output_path,
                 )
             elif parsed.provider_key == "bilibili":
-                extraction, artifact = _download_bilibili_input(
-                    parsed=parsed,
-                    browser_config=browser_config,
-                    output_dir=output_dir,
-                    timeout_secs=timeout_secs,
-                    watermark=watermark,
-                )
+                kwargs = {
+                    "parsed": parsed,
+                    "browser_config": browser_config,
+                    "output_dir": output_dir,
+                    "timeout_secs": timeout_secs,
+                    "watermark": watermark,
+                }
+                if max_video_duration_secs > 0:
+                    kwargs["max_video_duration_secs"] = max_video_duration_secs
+                extraction, artifact = _download_bilibili_input(**kwargs)
                 results[index] = DownloadJobResult(
                     raw_input=parsed.raw_input,
                     parsed_input=parsed,
@@ -498,12 +534,15 @@ def _run_download_jobs(
                     content_id=extraction.metadata.content_id or "unknown",
                     candidates=len(extraction.candidates),
                 )
-                artifact = _download_extraction_artifact(
-                    extraction=extraction,
-                    output_dir=output_dir,
-                    timeout_secs=timeout_secs,
-                    watermark=watermark,
-                )
+                kwargs = {
+                    "extraction": extraction,
+                    "output_dir": output_dir,
+                    "timeout_secs": timeout_secs,
+                    "watermark": watermark,
+                }
+                if max_video_duration_secs > 0:
+                    kwargs["max_video_duration_secs"] = max_video_duration_secs
+                artifact = _download_extraction_artifact(**kwargs)
                 results[index] = DownloadJobResult(
                     raw_input=parsed.raw_input,
                     parsed_input=parsed,

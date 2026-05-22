@@ -102,6 +102,7 @@ def test_load_sync_config_allows_missing_channel_id_for_task_level_cdp(tmp_path:
             [
                 "sync:",
                 "  publish_method: skill",
+                "  max_video_duration_secs: 1800",
                 "tasks:",
                 "  - name: demo",
                 "    source_url: https://example.com/video",
@@ -130,6 +131,7 @@ def test_load_sync_config_allows_missing_guild_and_channel_for_skill_publish(tmp
             [
                 "sync:",
                 "  publish_method: skill",
+                "  max_video_duration_secs: 1800",
                 "tasks:",
                 "  - name: demo",
                 "    source_url: https://example.com/video",
@@ -145,3 +147,4 @@ def test_load_sync_config_allows_missing_guild_and_channel_for_skill_publish(tmp
     assert len(config.tasks) == 1
     assert config.tasks[0].guild_id == ""
     assert config.tasks[0].channel_id == ""
+    assert config.max_video_duration_secs == 1800

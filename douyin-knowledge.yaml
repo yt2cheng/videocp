@@ -7,6 +7,7 @@ sync:
   videos_per_task: 1
   publish_method: skill
   skip_rate: 0
+  max_video_duration_secs: 1800
 
 tasks:
   - name: "douyin-这不科学啊"

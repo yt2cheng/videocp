@@ -5,6 +5,10 @@ download:
   start_interval_secs: 0
   profile_videos_count: 3
 
+# B站下载策略: tv(默认1080P/无需大会员) | web(需Cookie/支持4K) | ytdlp(无登录/最高720P)
+bilibili:
+  download_mode: tv
+
 browser:
   profile_dir: ~/Library/Caches/videocp/chrome-profile
   browser_path: ""

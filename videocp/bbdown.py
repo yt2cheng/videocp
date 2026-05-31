@@ -35,14 +35,34 @@ from videocp.models import (
 from videocp.providers import BILIBILI_VIDEO_ID_RE, extract_id_from_url
 from videocp.runtime_log import log_info, log_warn
 
-TV_LOGIN_AUTH_URL = "https://passport.snm0516.aisee.tv/x/passport-tv-login/qrcode/auth_code"
+TV_LOGIN_AUTH_URL = "https://passport.bilibili.com/x/passport-tv-login/qrcode/auth_code"
 TV_LOGIN_POLL_URL = "https://passport.bilibili.com/x/passport-tv-login/qrcode/poll"
-TV_PLAYURL_API = "https://api.snm0516.aisee.tv/x/tv/playurl"
+TV_PLAYURL_API = "https://api.bilibili.com/x/tv/playurl"
 BILIBILI_VIEW_API = "https://api.bilibili.com/x/web-interface/view"
 TV_API_SIGN_SECRET = "59b43e04ad6965f34319062b478f83dd"
+
+# 第三方反代回退域名（当官方 API 不可用时使用）
+TV_LOGIN_AUTH_URL_FALLBACK = "https://passport.snm0516.aisee.tv/x/passport-tv-login/qrcode/auth_code"
+TV_PLAYURL_API_FALLBACK = "https://api.snm0516.aisee.tv/x/tv/playurl"
+
+# Bilibili TV API 鉴权相关错误码
+AUTH_ERROR_CODES = {-101, -104, -400, -401, -404}
 TV_LOGIN_WAIT_SECS = 300
 TV_LOGIN_POLL_INTERVAL_SECS = 1
 TV_TOKEN_FILE = "BBDownTV.data"
+WEB_COOKIE_FILE = "BilibiliWebCookies.json"
+
+# Bilibili Web API
+WEB_PLAYURL_API = "https://api.bilibili.com/x/player/wbi/playurl"
+WBI_INDEX_NAV_API = "https://api.bilibili.com/x/web-interface/nav"
+
+# WBI 混肴密钥映射表
+_WBI_MIXIN_KEY_ENC_TAB = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+    27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+    37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+    22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 52, 44, 34,
+]
 TV_API_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Linux; Android 10; OnePlus7TPro Build/QKQ1.190716.003) "
@@ -50,6 +70,13 @@ TV_API_HEADERS = {
     ),
     "Referer": "https://www.bilibili.com/",
 }
+
+# Web API 下载 CDN 流时使用桌面浏览器 UA，避免被 CDN 风控
+WEB_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+)
+
 BASE_URL_PORT_RE = re.compile(r"http.*:\d+", re.IGNORECASE)
 _TV_LOGIN_LOCK = threading.Lock()
 
@@ -76,6 +103,28 @@ CODEC_COMPAT_PRIORITY = {
     12: 2,  # HEVC / H.265
     13: 1,  # AV1
 }
+
+_QUALITY_DISPLAY = {
+    "127": "8K超高清",
+    "126": "4K超清",
+    "125": "4K HDR",
+    "120": "4K",
+    "116": "1080P60帧",
+    "112": "1080P高码率",
+    "100": "1080P",
+    "80": "1080P",
+    "74": "720P60帧",
+    "64": "720P",
+    "48": "720P",
+    "32": "480P",
+    "16": "360P",
+    "6": "240P",
+    "5": "144P",
+}
+
+
+def _qn_display_name(qn: str) -> str:
+    return _QUALITY_DISPLAY.get(qn, f"未知画质(qn={qn})")
 
 
 @dataclass(slots=True)
@@ -116,6 +165,318 @@ def save_bbdown_tv_token(profile_dir: Path, token: str) -> Path:
     return token_path
 
 
+def clear_bbdown_tv_token(profile_dir: Path) -> None:
+    token_path = bbdown_tv_token_path(profile_dir)
+    if token_path.is_file():
+        token_path.unlink()
+
+
+def _is_token_expired_error(exc: DownloadError) -> bool:
+    msg = str(exc).lower()
+    for code in AUTH_ERROR_CODES:
+        if f"code={code}" in msg:
+            return True
+    for kw in ("access_token", "access_key", "not login", "未登录", "未登入", "token", "expired", "过期", "请先登录", "请求错误"):
+        if kw in msg:
+            return True
+    return False
+
+
+# ── Bilibili Web API cookie helpers ──────────────────────────────────────────
+
+
+def web_cookie_path(profile_dir: Path) -> Path:
+    return bbdown_state_dir(profile_dir) / WEB_COOKIE_FILE
+
+
+def load_web_cookies(profile_dir: Path) -> dict[str, str]:
+    path = web_cookie_path(profile_dir)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {k: str(v) for k, v in data.items() if v}
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def save_web_cookies(profile_dir: Path, cookies: dict[str, str]) -> None:
+    state_dir = bbdown_state_dir(profile_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    web_cookie_path(profile_dir).write_text(json.dumps(cookies, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _extract_cookies_from_browser(browser_config: BrowserConfig) -> dict[str, str]:
+    """打开浏览器访问 B 站以提取 Cookie (SESSDATA 等)。
+    使用非 headless 模式并复用已有 profile，以便利用种子数据的登录态。
+    如果 profile 中没有 B 站登录态，会提示用户手动登录。"""
+    from videocp.profile import prepare_profile_seed_once
+    prepare_profile_seed_once(browser_config.profile_dir, browser_config.browser_path)
+
+    cookie_config = BrowserConfig(
+        profile_dir=browser_config.profile_dir,
+        browser_path=browser_config.browser_path,
+        headless=False,
+    )
+    log_info("bbdown.cookie.extract.start", profile_dir=str(browser_config.profile_dir))
+
+    def _read_cookies(context) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for c in context.cookies():
+            if c.get("name") and c.get("value"):
+                result[str(c["name"])] = str(c["value"])
+        return result
+
+    MAX_WAIT_LOGIN_SECS = 120
+    with BrowserSession(cookie_config, prepare_seed=False, terminate_on_close=True) as session:
+        if session.context is None:
+            log_warn("bbdown.cookie.extract.no_context")
+            return {}
+
+        page = session.new_page()
+        try:
+            page.goto("https://www.bilibili.com/", wait_until="domcontentloaded", timeout=30_000)
+            page.wait_for_timeout(2_000)
+
+            # 首次检查是否已有登录态
+            cookies = _read_cookies(session.context)
+            if "SESSDATA" in cookies:
+                log_info("bbdown.cookie.extract.already_logged_in")
+            else:
+                # 显示登录提示，等待用户手动登录
+                _show_cookie_login_overlay(page, "请在浏览器中登录哔哩哔哩 (扫码或账号密码)，登录后自动继续...")
+                log_info("bbdown.cookie.extract.waiting_login", timeout_secs=MAX_WAIT_LOGIN_SECS)
+                deadline = time.monotonic() + MAX_WAIT_LOGIN_SECS
+                while time.monotonic() < deadline:
+                    time.sleep(1)
+                    cookies = _read_cookies(session.context)
+                    if "SESSDATA" in cookies:
+                        _show_cookie_login_overlay(page, "登录成功！正在继续下载...")
+                        page.wait_for_timeout(1_500)
+                        break
+                else:
+                    log_warn("bbdown.cookie.extract.login_timeout")
+        finally:
+            page.close()
+
+    has_login = "SESSDATA" in cookies or "bili_jct" in cookies
+    log_info(
+        "bbdown.cookie.extract.result",
+        cookie_count=len(cookies),
+        has_sessdata="SESSDATA" in cookies,
+        has_bili_jct="bili_jct" in cookies,
+        effective=has_login,
+    )
+    return cookies
+
+
+def _show_cookie_login_overlay(page, message: str) -> None:
+    """在页面上显示登录提示覆盖层。"""
+    try:
+        page.evaluate(
+            """([msg]) => {
+                let overlay = document.getElementById('vc-cookie-overlay');
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.id = 'vc-cookie-overlay';
+                    overlay.style.cssText = [
+                        'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999',
+                        'display:flex;align-items:center;justify-content:center',
+                        'background:rgba(0,0,0,0.55);pointer-events:none',
+                    ].join(';');
+                    const box = document.createElement('div');
+                    box.style.cssText = [
+                        'padding:32px 48px;border-radius:20px',
+                        'background:rgba(255,255,255,0.95);backdrop-filter:blur(10px)',
+                        'box-shadow:0 20px 60px rgba(0,0,0,0.2)',
+                        'font-size:20px;font-weight:600;color:#1c2430;text-align:center',
+                        'font-family:"PingFang SC","Microsoft YaHei",sans-serif',
+                    ].join(';');
+                    box.textContent = msg;
+                    overlay.appendChild(box);
+                    document.body.appendChild(overlay);
+                } else {
+                    overlay.querySelector('div').textContent = msg;
+                }
+            }""",
+            [message],
+        )
+    except Exception:
+        pass
+
+
+def _cookies_to_header(cookies: dict[str, str]) -> str:
+    return "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+
+def _web_cookies_to_cookie_list(cookies: dict[str, str]) -> list[dict[str, str]]:
+    """将 web cookie dict 转为下载器需要的 cookie list 格式。"""
+    result: list[dict[str, str]] = []
+    for name, value in cookies.items():
+        if not value:
+            continue
+        domain = ".bilibili.com"
+        # SESSDATA 需要 secure 标记
+        path = "/"
+        result.append({"name": name, "value": value, "domain": domain, "path": path})
+    return result
+
+
+# ── WBI signing ────────────────────────────────────────────────────────────
+
+
+def _fetch_wbi_mixin_key(cookies: dict[str, str] | None, timeout_secs: int) -> tuple[str, str]:
+    """获取 WBI 签名所需的 img_key 和 sub_key。"""
+    headers = {"User-Agent": TV_API_HEADERS["User-Agent"], "Referer": "https://www.bilibili.com/"}
+    if cookies:
+        headers["Cookie"] = _cookies_to_header(cookies)
+    response = requests.get(WBI_INDEX_NAV_API, headers=headers, timeout=timeout_secs)
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data") or {}
+    wbi_img = data.get("wbi_img") or {}
+
+    # B 站 nav API 可能返回 img_url/sub_url 或 img_key/sub_key
+    if isinstance(wbi_img, dict):
+        img_raw = wbi_img.get("img_key") or wbi_img.get("img_url") or ""
+        sub_raw = wbi_img.get("sub_key") or wbi_img.get("sub_url") or ""
+    else:
+        img_raw = ""
+        sub_raw = ""
+
+    img_key = str(img_raw).rsplit("/", 1)[-1].split(".")[0] if img_raw else ""
+    sub_key = str(sub_raw).rsplit("/", 1)[-1].split(".")[0] if sub_raw else ""
+
+    if not img_key or not sub_key:
+        raise DownloadError(
+            f"Failed to fetch WBI mixin key from nav API: "
+            f"code={payload.get('code')} wbi_img_keys={list(wbi_img.keys()) if isinstance(wbi_img, dict) else 'none'}"
+        )
+    return img_key, sub_key
+
+
+def _wbi_mixin(raw: str) -> str:
+    """WBI 混肴：从 raw 字符串中按映射表提取字符。"""
+    return "".join(raw[pos] for pos in _WBI_MIXIN_KEY_ENC_TAB if pos < len(raw))[:32]
+
+
+def _wbi_sign_params(params: dict[str, str], mixin_key: str) -> dict[str, str]:
+    """对参数进行 WBI 签名，添加 wts 和 w_rid。"""
+    signed = dict(params)
+    signed["wts"] = _timestamp_secs()
+    sorted_keys = sorted(signed.keys())
+    query_string = "&".join(f"{k}={signed[k]}" for k in sorted_keys)
+    signed["w_rid"] = hashlib.md5((query_string + mixin_key).encode("utf-8")).hexdigest()
+    return signed
+
+# ── Web API playurl fetching ────────────────────────────────────────────────
+
+
+def fetch_bilibili_web_candidates(
+    page_info: BilibiliPageInfo,
+    cookies: dict[str, str],
+    timeout_secs: int,
+) -> list[MediaCandidate]:
+    """通过 B 站 Web API (wbi/playurl) 获取候选媒体流。支持大会员 4K/8K。"""
+    img_key, sub_key = _fetch_wbi_mixin_key(cookies, timeout_secs)
+    mixin_key = _wbi_mixin(img_key + sub_key)
+
+    params: dict[str, str] = {}
+    params["avid"] = page_info.aid
+    params["bvid"] = page_info.bvid
+    params["cid"] = page_info.cid
+    params["fnval"] = "4048"
+    params["fnver"] = "0"
+    params["fourk"] = "1"
+    params["qn"] = "0"
+    params["platform"] = "web"
+    params = _wbi_sign_params(params, mixin_key)
+
+    cookie_header = _cookies_to_header(cookies)
+    headers = dict(TV_API_HEADERS)
+    headers["Cookie"] = cookie_header
+
+    log_info(
+        "bbdown.web_api.request",
+        endpoint=WEB_PLAYURL_API,
+        aid=page_info.aid,
+        bvid=page_info.bvid,
+        cid=page_info.cid,
+        cookies_present="SESSDATA" in cookies,
+    )
+    response = requests.get(WEB_PLAYURL_API, params=params, headers=headers, timeout=timeout_secs)
+    response.raise_for_status()
+    payload = response.json()
+    code = int(payload.get("code", 0))
+    if code != 0:
+        message = str(payload.get("message") or payload.get("msg") or "unknown error")
+        raise DownloadError(f"Bilibili Web playurl request failed (code={code}): {message}")
+
+    data = payload.get("data") or payload.get("result") or {}
+    dash = data.get("dash")
+    if not isinstance(dash, dict):
+        raise DownloadError("Bilibili Web API returned no DASH data.")
+
+    videos = dash.get("video") or []
+    audios = dash.get("audio") or []
+
+    # 记录 Web API 返回的可用画质
+    available_qn = sorted(
+        {str(stream.get("id") or "") for stream in videos},
+        key=lambda q: QUALITY_PRIORITY.get(q, -1),
+        reverse=True,
+    )
+    quality_hints = {q: _qn_display_name(q) for q in available_qn}
+    log_info(
+        "bbdown.web_api.quality",
+        available_qn=available_qn,
+        highest_qn=available_qn[0] if available_qn else "none",
+        quality_hints=quality_hints,
+        stream_count=len(videos),
+    )
+
+    candidates: list[MediaCandidate] = []
+    # 按画质优先级排序视频流
+    for stream in sorted(videos, key=_video_stream_sort_key, reverse=True):
+        primary_url = _pick_primary_url(stream)
+        if not primary_url:
+            continue
+        quality_id = str(stream.get("id") or "")
+        bandwidth = int(stream.get("bandwidth") or 0)
+        codecs = str(stream.get("codecs") or "").strip()
+        codecid = int(stream.get("codecid") or 0)
+        candidates.append(
+            MediaCandidate(
+                url=primary_url,
+                kind=MediaKind.MP4,
+                track_type=TrackType.VIDEO_ONLY,
+                watermark_mode=WatermarkMode.NO_WATERMARK,
+                source="web_api",
+                observed_via="api",
+                note=f"qn={quality_id};codecid={codecid};codecs={codecs};bandwidth={bandwidth}",
+            )
+        )
+    # 添加最佳音频流
+    best_audio = _pick_best_audio_stream(audios)
+    if best_audio is not None:
+        audio_url = _pick_primary_url(best_audio)
+        if audio_url:
+            candidates.append(
+                MediaCandidate(
+                    url=audio_url,
+                    kind=MediaKind.MP4,
+                    track_type=TrackType.AUDIO_ONLY,
+                    watermark_mode=WatermarkMode.NO_WATERMARK,
+                    source="web_api",
+                    observed_via="api",
+                    note=f"id={best_audio.get('id')};bandwidth={best_audio.get('bandwidth')}",
+                )
+            )
+    return candidates
+
+
 def ensure_bbdown_tv_token(browser_config: BrowserConfig, timeout_secs: int) -> str:
     token = load_bbdown_tv_token(browser_config.profile_dir)
     if token:
@@ -146,8 +507,8 @@ def download_bilibili_with_bbdown(
     metadata_seed: VideoMetadata | None = None,
     author_hint: str = "",
     max_video_duration_secs: int = 0,
+    bilibili_download_mode: str = "tv",
 ) -> tuple[ExtractionResult, DownloadArtifact]:
-    token = ensure_bbdown_tv_token(browser_config, timeout_secs=timeout_secs)
     page_info = fetch_bilibili_page_info(source_url, timeout_secs=timeout_secs, author_hint=author_hint)
     metadata = build_bbdown_metadata(
         source_url,
@@ -155,22 +516,90 @@ def download_bilibili_with_bbdown(
         metadata_seed=metadata_seed,
         author_hint=author_hint,
     )
-    candidates = fetch_bilibili_tv_candidates(page_info, token=token, timeout_secs=timeout_secs)
+
+    candidates: list[MediaCandidate] = []
+    download_mode = "tv_api"
+    current_web_cookies: dict[str, str] = {}
+
+    # ── web 模式：优先尝试 Web API + Cookie（可获取 4K/8K） ──
+    if bilibili_download_mode == "web":
+        # 策略 1：尝试缓存 Cookie
+        web_cookies = load_web_cookies(browser_config.profile_dir)
+        if web_cookies and "SESSDATA" in web_cookies:
+            try:
+                candidates = fetch_bilibili_web_candidates(page_info, cookies=web_cookies, timeout_secs=timeout_secs)
+                if candidates:
+                    download_mode = "web_api"
+                    current_web_cookies = web_cookies
+                    log_info("bbdown.mode.selected", mode="web_api", reason="cookie_present", candidate_count=len(candidates))
+            except DownloadError as exc:
+                log_warn("bbdown.web_api.failed", error=str(exc), action="falling_back_to_tv_api")
+            except Exception as exc:
+                log_warn("bbdown.web_api.unexpected", error=str(exc), action="falling_back_to_tv_api")
+        else:
+            log_info("bbdown.web_api.no_cached_cookies", cached=bool(web_cookies), action="trying_browser_extraction")
+
+        # 策略 2：Web API 不可用时尝试从浏览器获取新 Cookie
+        if not candidates:
+            try:
+                fresh_cookies = _extract_cookies_from_browser(browser_config)
+                if fresh_cookies and "SESSDATA" in fresh_cookies:
+                    save_web_cookies(browser_config.profile_dir, fresh_cookies)
+                    candidates = fetch_bilibili_web_candidates(page_info, cookies=fresh_cookies, timeout_secs=timeout_secs)
+                    if candidates:
+                        download_mode = "web_api"
+                        current_web_cookies = fresh_cookies
+                        log_info("bbdown.mode.selected", mode="web_api", reason="fresh_browser_cookies", candidate_count=len(candidates))
+                else:
+                    log_info("bbdown.web_api.no_browser_cookies", cookie_count=len(fresh_cookies), has_sessdata="SESSDATA" in fresh_cookies, action="falling_back_to_tv_api")
+            except DownloadError as exc:
+                log_warn("bbdown.web_api.fresh_failed", error=str(exc), action="falling_back_to_tv_api")
+            except Exception as exc:
+                log_warn("bbdown.web_api.fresh_unexpected", error=str(exc), action="falling_back_to_tv_api")
+
+    # ── 策略 3：回退到 TV API ──
     if not candidates:
-        raise DownloadError("Bilibili TV API returned no playable candidates.")
+        token = ensure_bbdown_tv_token(browser_config, timeout_secs=timeout_secs)
+        max_token_retries = 1
+        for token_attempt in range(max_token_retries + 1):
+            try:
+                candidates = fetch_bilibili_tv_candidates(page_info, token=token, timeout_secs=timeout_secs)
+                break
+            except DownloadError as exc:
+                if token_attempt >= max_token_retries or not _is_token_expired_error(exc):
+                    raise
+                log_warn(
+                    "bbdown.token.expired",
+                    attempt=f"{token_attempt + 1}/{max_token_retries + 1}",
+                    error=str(exc),
+                    action="clearing_cache",
+                )
+                clear_bbdown_tv_token(browser_config.profile_dir)
+                token = ensure_bbdown_tv_token(browser_config, timeout_secs=timeout_secs)
+
+    if not candidates:
+        raise DownloadError("Bilibili API returned no playable candidates (web + tv both exhausted).")
+
+    # Web API 模式：传递 Cookie + 桌面浏览器 UA 以通过 CDN 验证
+    if download_mode == "web_api" and current_web_cookies:
+        extraction_cookies = _web_cookies_to_cookie_list(current_web_cookies)
+        extraction_user_agent = WEB_USER_AGENT
+    else:
+        extraction_cookies = []
+        extraction_user_agent = TV_API_HEADERS["User-Agent"]
+
     extraction = ExtractionResult(
         metadata=metadata,
         candidates=candidates,
-        cookies=[],
-        user_agent=TV_API_HEADERS["User-Agent"],
+        cookies=extraction_cookies,
+        user_agent=extraction_user_agent,
         diagnostics={
-            "downloader": "bbdown_python_tv",
-            "mode": "tv_api",
+            "downloader": "bbdown_python",
+            "mode": download_mode,
             "aid": page_info.aid,
             "bvid": page_info.bvid,
             "cid": page_info.cid,
             "page_index": page_info.page_index,
-            "access_token": "present" if token else "missing",
         },
     )
     if max_video_duration_secs > 0 and metadata.duration_ms > max_video_duration_secs * 1000:
@@ -254,6 +683,22 @@ def fetch_bilibili_tv_candidates(page_info: BilibiliPageInfo, token: str, timeou
     if isinstance(dash, dict):
         videos = dash.get("video") or []
         audios = dash.get("audio") or []
+
+        # 记录 TV API 返回的可用画质（方便观察大会员是否提升画质）
+        available_qn = sorted(
+            {str(stream.get("id") or "") for stream in videos},
+            key=lambda q: QUALITY_PRIORITY.get(q, -1),
+            reverse=True,
+        )
+        quality_hints = {q: _qn_display_name(q) for q in available_qn}
+        log_info(
+            "bbdown.tv_api.quality",
+            available_qn=available_qn,
+            highest_qn=available_qn[0] if available_qn else "none",
+            quality_hints=quality_hints,
+            stream_count=len(videos),
+        )
+
         candidates: list[MediaCandidate] = []
         for stream in sorted(videos, key=_video_stream_sort_key, reverse=True):
             primary_url = _pick_primary_url(stream)
@@ -330,22 +775,53 @@ def _fetch_bilibili_tv_playinfo(page_info: BilibiliPageInfo, token: str, timeout
     params["qn"] = "0"
     params["ts"] = _timestamp_secs()
     unsigned_query = urlencode(params)
-    url = f"{TV_PLAYURL_API}?{unsigned_query}&sign={_sign_query(unsigned_query)}"
-    log_info(
-        "bbdown.tv_api.request",
-        endpoint=TV_PLAYURL_API,
-        aid=page_info.aid,
-        cid=page_info.cid,
-        page=page_info.page_index,
-        access_token="present" if token else "missing",
-    )
-    response = requests.get(url, headers=TV_API_HEADERS, timeout=timeout_secs)
-    response.raise_for_status()
-    payload = response.json()
-    if int(payload.get("code", 0)) != 0:
-        message = str(payload.get("message") or payload.get("msg") or "unknown error")
-        raise DownloadError(f"Bilibili TV playurl request failed: {message}")
-    return payload
+
+    # 优先使用官方域名，失败则回退到第三方反代
+    api_endpoints = [TV_PLAYURL_API, TV_PLAYURL_API_FALLBACK]
+    last_error: DownloadError | None = None
+
+    for endpoint in api_endpoints:
+        url = f"{endpoint}?{unsigned_query}&sign={_sign_query(unsigned_query)}"
+        log_info(
+            "bbdown.tv_api.request",
+            endpoint=endpoint,
+            aid=page_info.aid,
+            cid=page_info.cid,
+            page=page_info.page_index,
+            access_token="present" if token else "missing",
+        )
+        try:
+            response = requests.get(url, headers=TV_API_HEADERS, timeout=timeout_secs)
+            response.raise_for_status()
+            payload = response.json()
+            code = int(payload.get("code", 0))
+            if code != 0:
+                message = str(payload.get("message") or payload.get("msg") or "unknown error")
+                raise DownloadError(f"Bilibili TV playurl request failed (code={code}): {message}")
+            return payload
+        except DownloadError as exc:
+            last_error = exc
+            # 鉴权错误不重试其他域名（token 问题换域名也没用）
+            if _is_token_expired_error(exc):
+                raise
+            log_warn(
+                "bbdown.tv_api.endpoint_failed",
+                endpoint=endpoint,
+                error=str(exc),
+                action="trying_fallback" if endpoint != api_endpoints[-1] else "all_failed",
+            )
+        except requests.RequestException as exc:
+            last_error = DownloadError(f"Request failed: {exc}")
+            log_warn(
+                "bbdown.tv_api.network_error",
+                endpoint=endpoint,
+                error=str(exc),
+                action="trying_fallback" if endpoint != api_endpoints[-1] else "all_failed",
+            )
+
+    if last_error is not None:
+        raise last_error
+    raise DownloadError("Bilibili TV playurl request failed: all endpoints exhausted")
 
 
 def _resolve_playinfo_root(payload: dict) -> dict:
@@ -428,9 +904,26 @@ def _extract_video_id(url: str) -> str:
 
 def _login_tv_in_browser(browser_path: str, timeout_secs: int) -> str:
     payload = _build_tv_login_payload()
-    response = requests.post(TV_LOGIN_AUTH_URL, data=payload, headers=TV_API_HEADERS, timeout=15)
-    response.raise_for_status()
-    data = _parse_tv_login_response(response.text)
+
+    # 优先官方域名，失败回退第三方反代
+    last_error: DownloadError | None = None
+    for auth_endpoint in (TV_LOGIN_AUTH_URL, TV_LOGIN_AUTH_URL_FALLBACK):
+        try:
+            response = requests.post(auth_endpoint, data=payload, headers=TV_API_HEADERS, timeout=15)
+            response.raise_for_status()
+            data = _parse_tv_login_response(response.text)
+            break
+        except (requests.RequestException, DownloadError) as exc:
+            last_error = DownloadError(f"TV login auth request to {auth_endpoint} failed: {exc}")
+            log_warn(
+                "bbdown.login.auth_endpoint_failed",
+                endpoint=auth_endpoint,
+                error=str(exc),
+                action="trying_fallback" if auth_endpoint != TV_LOGIN_AUTH_URL_FALLBACK else "all_failed",
+            )
+    else:
+        raise last_error or DownloadError("Bilibili TV login auth request failed: all endpoints exhausted")
+
     login_url = data["url"]
     auth_code = data["auth_code"]
     payload["auth_code"] = auth_code

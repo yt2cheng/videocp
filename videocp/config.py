@@ -34,6 +34,7 @@ class AppConfig:
     watermark: WatermarkConfig
     profile_videos_count: int = 3
     source_path: Path | None = None
+    bilibili_download_mode: str = "tv"  # tv | web | ytdlp
 
 
 def find_config_path(start_dir: Path | None = None) -> Path | None:
@@ -104,6 +105,7 @@ def load_app_config(config_path: Path | None = None, start_dir: Path | None = No
     browser_config = _as_mapping(payload.get("browser"))
     request_config = _as_mapping(payload.get("request"))
     watermark_raw = _as_mapping(payload.get("watermark"))
+    bilibili_config = _as_mapping(payload.get("bilibili"))
 
     output_dir_value = download_config.get("output_dir", "./downloads")
     try:
@@ -140,6 +142,10 @@ def load_app_config(config_path: Path | None = None, start_dir: Path | None = No
         model=str(watermark_raw.get("model", WatermarkConfig.model) or WatermarkConfig.model).strip(),
     )
 
+    bilibili_download_mode = str(bilibili_config.get("download_mode", "tv") or "tv").strip().lower()
+    if bilibili_download_mode not in {"tv", "web", "ytdlp"}:
+        raise ValueError(f"Invalid bilibili.download_mode in {CONFIG_FILENAME}: {bilibili_download_mode!r}. Expected 'tv', 'web', or 'ytdlp'.")
+
     return AppConfig(
         output_dir=_resolve_path(output_dir_value, base_dir),
         profile_dir=_resolve_path(profile_dir_value, base_dir),
@@ -152,6 +158,7 @@ def load_app_config(config_path: Path | None = None, start_dir: Path | None = No
         watermark=watermark,
         profile_videos_count=max(1, profile_videos_count),
         source_path=resolved_path,
+        bilibili_download_mode=bilibili_download_mode,
     )
 
 

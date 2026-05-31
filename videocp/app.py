@@ -53,6 +53,7 @@ class DownloadOptions:
     start_interval_secs: float = 0.0
     watermark: WatermarkConfig | None = None
     profile_videos_count: int = 3
+    bilibili_download_mode: str = "tv"  # tv | web | ytdlp
 
 
 @dataclass(slots=True)
@@ -304,6 +305,7 @@ def _download_bilibili_input(
     timeout_secs: int,
     watermark: WatermarkConfig | None = None,
     max_video_duration_secs: int = 0,
+    bilibili_download_mode: str = "tv",
 ) -> tuple[ExtractionResult, DownloadArtifact]:
     kwargs = {
         "source_url": parsed.canonical_url,
@@ -312,6 +314,7 @@ def _download_bilibili_input(
         "timeout_secs": timeout_secs,
         "watermark": watermark,
         "author_hint": parsed.author_hint,
+        "bilibili_download_mode": bilibili_download_mode,
     }
     if max_video_duration_secs > 0:
         kwargs["max_video_duration_secs"] = max_video_duration_secs
@@ -428,6 +431,7 @@ def _run_download_jobs(
     start_interval_secs: float,
     watermark: WatermarkConfig | None = None,
     max_video_duration_secs: int = 0,
+    bilibili_download_mode: str = "tv",
 ) -> list[DownloadJobResult]:
     results: list[DownloadJobResult | None] = [None] * len(prepared_inputs)
     total_limit = max(1, max_concurrent)
@@ -496,16 +500,29 @@ def _run_download_jobs(
                     output=artifact.output_path,
                 )
             elif parsed.provider_key == "bilibili":
-                kwargs = {
-                    "parsed": parsed,
-                    "browser_config": browser_config,
-                    "output_dir": output_dir,
-                    "timeout_secs": timeout_secs,
-                    "watermark": watermark,
-                }
-                if max_video_duration_secs > 0:
-                    kwargs["max_video_duration_secs"] = max_video_duration_secs
-                extraction, artifact = _download_bilibili_input(**kwargs)
+                if bilibili_download_mode == "ytdlp":
+                    # yt-dlp 模式：不需要 token/cookie，最高 720P
+                    kwargs = {
+                        "parsed": parsed,
+                        "browser_config": browser_config,
+                        "output_dir": output_dir,
+                        "timeout_secs": timeout_secs,
+                    }
+                    if max_video_duration_secs > 0:
+                        kwargs["max_video_duration_secs"] = max_video_duration_secs
+                    extraction, artifact = _download_ytdlp_input(**kwargs)
+                else:
+                    kwargs = {
+                        "parsed": parsed,
+                        "browser_config": browser_config,
+                        "output_dir": output_dir,
+                        "timeout_secs": timeout_secs,
+                        "watermark": watermark,
+                        "bilibili_download_mode": bilibili_download_mode,
+                    }
+                    if max_video_duration_secs > 0:
+                        kwargs["max_video_duration_secs"] = max_video_duration_secs
+                    extraction, artifact = _download_bilibili_input(**kwargs)
                 results[index] = DownloadJobResult(
                     raw_input=parsed.raw_input,
                     parsed_input=parsed,
@@ -641,6 +658,7 @@ def download_videos(options: DownloadOptions) -> list[tuple[ExtractionResult, Do
         max_concurrent_per_site=options.max_concurrent_per_site,
         start_interval_secs=options.start_interval_secs,
         watermark=options.watermark,
+        bilibili_download_mode=options.bilibili_download_mode,
     )
     failures = [item for item in job_results if not item.ok]
     if failures:
@@ -682,6 +700,7 @@ def download_jobs(options: DownloadOptions) -> list[DownloadJobResult]:
         max_concurrent_per_site=options.max_concurrent_per_site,
         start_interval_secs=options.start_interval_secs,
         watermark=options.watermark,
+        bilibili_download_mode=options.bilibili_download_mode,
     )
 
 

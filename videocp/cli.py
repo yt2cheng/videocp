@@ -41,6 +41,13 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser.add_argument("--json", action="store_true", help="Print result as JSON.")
     download_parser.add_argument("--timeout-secs", type=int, default=None, help="Timeout in seconds.")
     download_parser.add_argument("--profile-videos-count", type=int, default=None, help="Number of recent videos to download from a profile page.")
+    download_parser.add_argument(
+        "--bb-mode",
+        dest="bilibili_download_mode",
+        choices=["tv", "web", "ytdlp"],
+        default=None,
+        help="Bilibili download strategy: tv (default, 1080P, no VIP needed), web (requires cookie, up to 4K), ytdlp (no login, up to 720P).",
+    )
 
     prepare_parser = subparsers.add_parser("prepare-list", help="Resolve inputs and write a canonical URL list.")
     prepare_parser.add_argument("inputs", nargs="*", help="URL, short link, or share text.")
@@ -97,6 +104,7 @@ def resolve_cli_path(value: str | None) -> Path | None:
 
 def apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfig:
     cli_profile_videos_count = getattr(args, "profile_videos_count", None)
+    cli_bb_mode = getattr(args, "bilibili_download_mode", None)
     return AppConfig(
         output_dir=resolve_cli_path(getattr(args, "output_dir", None)) or config.output_dir,
         profile_dir=resolve_cli_path(getattr(args, "profile_dir", None)) or config.profile_dir,
@@ -109,6 +117,7 @@ def apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfi
         watermark=config.watermark,
         profile_videos_count=(cli_profile_videos_count if cli_profile_videos_count is not None else config.profile_videos_count),
         source_path=config.source_path,
+        bilibili_download_mode=(cli_bb_mode if cli_bb_mode is not None else config.bilibili_download_mode),
     )
 
 
@@ -136,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                     start_interval_secs=config.start_interval_secs,
                     watermark=config.watermark,
                     profile_videos_count=config.profile_videos_count,
+                    bilibili_download_mode=config.bilibili_download_mode,
                 )
             )
             payload = [

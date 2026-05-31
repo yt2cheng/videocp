@@ -279,9 +279,13 @@ def build_media_request_headers(url: str, user_agent: str, referer: str, *, acce
         "User-Agent": user_agent or "Mozilla/5.0",
         "Accept-Encoding": accept_encoding,
     }
+    is_tv_cdn = "platform=android_tv_yst" in url or "platform=android" in url
     # BBDown omits Referer for TV/app playurl assets. These URLs 403 when a web Referer is attached.
-    if "platform=android_tv_yst" not in url and "platform=android" not in url:
+    if not is_tv_cdn:
         headers["Referer"] = referer
+    # 为 Web API CDN 下载添加 Origin 头（模拟浏览器请求），TV API CDN 不需要
+    if not is_tv_cdn and ("bilivideo.com" in url or "bilibili.com" in url):
+        headers["Origin"] = "https://www.bilibili.com"
     return headers
 
 

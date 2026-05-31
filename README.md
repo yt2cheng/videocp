@@ -10,11 +10,13 @@
 | --- | --- |
 | 单视频下载 | 支持抖音、B 站、小红书、Instagram、YouTube，以及通用 `yt-dlp` 网站 |
 | 主页批量下载 | 支持抖音用户主页、B 站空间、小红书用户主页、Instagram reels、YouTube shorts/videos |
+| B 站合集下载 | 列出或下载 B 站用户空间的合集/系列视频 |
 | 批量输入 | 支持命令行传多个 URL，也支持从 txt 文件读取 |
 | 链接整理 | 从复制分享文案中提取 URL，并写出规范链接列表 |
 | QQ 频道同步 | 读取 `tasks.yaml`，下载新视频，基于历史记录去重，并发布 |
 | 浏览器登录复用 | 使用工具专用 Chrome profile，让需要登录的网站也能下载 |
 | B 站 TV 模式 | 没有缓存 TV token 时，会打开二维码登录页扫码一次 |
+| B 站多模式下载 | 支持 `tv`（1080P）、`web`（4K，需 Cookie）、`ytdlp`（720P）三种下载策略 |
 | 可选水印处理 | 可通过 Gemini/OpenRouter 加 ffmpeg delogo 检测并移除 B 站水印 |
 
 下载输出目录结构：
@@ -179,6 +181,52 @@ videocp download 'https://space.bilibili.com/7612168' --profile-videos-count 5
 - B 站空间下载使用内置 TV 模式，第一次可能需要扫码。
 - YouTube、Instagram 和其他通用主页类 URL 会尽量通过 `yt-dlp` 处理。
 
+## B 站合集下载
+
+`videocp series` 可以列出或下载 B 站用户空间中的合集/系列视频。它会通过浏览器拦截空间页面的 API 请求，获取合集中的所有视频，再复用已有的单视频下载管线。
+
+### 列出合集
+
+```bash
+# 列出某用户的所有合集
+videocp series 'https://space.bilibili.com/102438649'
+
+# 只看指定合集内的视频列表
+videocp series 'https://space.bilibili.com/102438649' --season-id 2072518
+
+# JSON 格式输出，便于脚本处理
+videocp series 'https://space.bilibili.com/102438649' --json
+```
+
+### 下载合集
+
+```bash
+# 下载指定合集的所有视频
+videocp series 'https://space.bilibili.com/102438649' --season-id 2072518 --download
+
+# 使用 web 模式（4K）下载
+videocp series 'https://space.bilibili.com/102438649' --season-id 2072518 --download --bb-mode web
+
+# 无头模式下载
+videocp series 'https://space.bilibili.com/102438649' --season-id 2072518 --download --headless
+```
+
+工作流程：
+
+```mermaid
+flowchart LR
+    A["用户空间 URL / mid"] --> B["浏览器打开空间主页"]
+    B --> C["拦截 seasons_series API"]
+    C --> D["获取合集名称和 season_id"]
+    D --> E["调用 seasons_archives_list API"]
+    E --> F["获取所有视频 BV 号、标题、时长"]
+    F --> G{"--download?"}
+    G -- "是" --> H["组装 ParsedInput → 复用下载管线"]
+    G -- "否" --> I["打印视频列表"]
+```
+
+算法：通过 Playwright 打开用户空间页，拦截 B 站前端自行调用的 `seasons_series` 和 `seasons_archives_list` API，解析出合集元数据和视频列表。下载时直接拿到 BV 号，复用内置的 B 站下载管线（tv/web/ytdlp）。
+
 ## 批量输入
 
 命令行传多个输入：
@@ -320,6 +368,10 @@ download:
   start_interval_secs: 0
   profile_videos_count: 3
 
+# B站下载策略: tv(默认1080P/无需大会员) | web(需Cookie/支持4K) | ytdlp(无登录/最高720P)
+bilibili:
+  download_mode: tv
+
 browser:
   profile_dir: ~/Library/Caches/videocp/chrome-profile
   browser_path: ""
@@ -344,6 +396,7 @@ watermark:
 | `download.max_concurrent_per_site` | 单平台并发限制 |
 | `download.start_interval_secs` | 任务启动间隔 |
 | `download.profile_videos_count` | 主页 URL 默认展开的最新视频数量 |
+| `bilibili.download_mode` | B 站下载策略：`tv`（1080P）、`web`（4K）、`ytdlp`（720P） |
 | `browser.profile_dir` | 工具专用 Chrome profile 目录 |
 | `browser.browser_path` | Chrome 可执行文件路径；为空时自动探测 |
 | `browser.headless` | 是否无可见窗口运行 |
@@ -357,6 +410,7 @@ videocp download '<url>' --output-dir ./tmp --no-headless --timeout-secs 60
 videocp download '<profile-url>' --profile-videos-count 10
 videocp download '<url>' --browser-path '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 videocp download --input-file ./links.txt --json
+videocp series 'https://space.bilibili.com/102438649' --season-id 2072518 --download --headless
 ```
 
 ## 演示脚本
@@ -381,7 +435,10 @@ videocp download --input-file ./links.txt
 # 5. 抓取主页最新 N 条视频
 videocp download 'https://space.bilibili.com/7612168' --profile-videos-count 3
 
-# 6. 同步任务演练
+# 6. 查看 B 站合集
+videocp series 'https://space.bilibili.com/325864133'
+
+# 7. 同步任务演练
 video sync --dry-run --count 1
 ```
 
@@ -416,5 +473,5 @@ video sync --dry-run --count 1
 - 下载任务会复用一个专用 Chrome 实例；如果已有实例运行，会尽量重连。
 - 浏览器提取和文件下载可以并发执行，同时复用同一个 Chrome 实例。
 - 下载器会优先尝试无水印候选，失败后回退到稳定可播放资源。
-- 当前支持单视频页和用户主页。直播、相册和播放列表不在支持范围内。
+- 当前支持单视频页、用户主页和合集/系列视频。直播、相册和播放列表不在支持范围内。
 - 不匹配内置 provider 的 URL 会自动交给 `yt-dlp`。

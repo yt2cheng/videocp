@@ -9,8 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videocp.bbdown import download_bilibili_with_bbdown
+from videocp.bilibili_series import (
+    BILIBILI_VIDEO_URL_TEMPLATE,
+    extract_mid_from_url,
+    fetch_all_archives,
+    fetch_seasons_series_list,
+)
 from videocp.browser import BrowserConfig, open_download_browser_session
-from videocp.config import WatermarkConfig
+from videocp.config import AppConfig, WatermarkConfig
 from videocp.doctor import run_doctor
 from videocp.downloader import (
     allocate_output_path,
@@ -719,3 +725,230 @@ def doctor(options: DoctorOptions) -> list[DoctorCheck]:
         keep_open=options.keep_open,
         login_urls=options.login_urls,
     )
+
+
+def series_command(
+    raw_input: str,
+    season_id: int | None = None,
+    download: bool = False,
+    json_output: bool = False,
+    config: AppConfig | None = None,
+    output_dir_override: Path | None = None,
+    timeout_secs_override: int | None = None,
+    headless_override: bool | None = None,
+    profile_dir_override: Path | None = None,
+    browser_path_override: str | None = None,
+    bb_mode_override: str | None = None,
+) -> int:
+    """Handle the ``series`` CLI subcommand.
+
+    Parameters
+    ----------
+    raw_input : str
+        A Bilibili space URL or numeric ``mid``.
+    season_id : int | None
+        If set, only list/download this specific series.
+    download : bool
+        If ``True``, download every video from matching series.
+    json_output : bool
+        If ``True``, print machine-readable JSON.
+    config : AppConfig | None
+        Merged application configuration (CLI overrides already applied).
+    """
+    # --- Resolve mid -----------------------------------------------------------
+    mid = extract_mid_from_url(raw_input)
+    if mid is None:
+        try:
+            mid = int(raw_input.strip())
+        except ValueError:
+            print(f"error: Cannot extract Bilibili user mid from '{raw_input}'", flush=True)
+            return 1
+
+    timeout_secs = timeout_secs_override if timeout_secs_override is not None else (
+        config.timeout_secs if config else 15
+    )
+    output_dir = output_dir_override or (config.output_dir if config else Path("./downloads"))
+    headless = headless_override if headless_override is not None else (
+        config.headless if config else False
+    )
+    profile_dir = profile_dir_override or (config.profile_dir if config else default_profile_dir())
+    browser_path = browser_path_override or (
+        config.browser_path if config else detect_system_browser_executable()
+    )
+    bb_mode = bb_mode_override or (
+        config.bilibili_download_mode if config else "tv"
+    )
+
+    if not browser_path:
+        print("error: No Chrome-family browser found. Use --browser-path.", flush=True)
+        return 1
+
+    browser_config = BrowserConfig(
+        profile_dir=profile_dir,
+        browser_path=browser_path,
+        headless=headless,
+    )
+
+    # --- Fetch series data via browser -----------------------------------------
+    log_info("series.list.fetch", mid=mid)
+    all_series: list[object] = []
+    try:
+        with open_download_browser_session(browser_config) as browser:
+            page = browser.new_page()
+            try:
+                all_series = fetch_seasons_series_list(page, mid, timeout_secs=timeout_secs)
+            finally:
+                page.close()
+    except Exception as exc:
+        print(f"error: Failed to fetch series list for mid={mid}: {exc}", flush=True)
+        return 1
+
+    if not all_series:
+        print(f"No series found for mid={mid}.")
+        return 0
+
+    # Filter by season_id if requested
+    if season_id is not None:
+        matching = [s for s in all_series if s.season_id == season_id]
+        if not matching:
+            print(f"No series with season_id={season_id} found for mid={mid}.")
+            return 1
+        selected = matching
+    else:
+        selected = all_series
+
+    # Fetch videos for each selected series (reuses the same browser profile)
+    series_with_videos: list[tuple[object, list[object]]] = []
+    try:
+        with open_download_browser_session(browser_config) as browser:
+            page = browser.new_page()
+            try:
+                # Navigate to space page first to establish bilibili.com origin
+                # (needed for correct Referer header in subsequent API calls)
+                page.goto(
+                    f"https://space.bilibili.com/{mid}",
+                    wait_until="domcontentloaded",
+                    timeout=min(timeout_secs * 1000, 15000),
+                )
+                for s in selected:
+                    try:
+                        videos = fetch_all_archives(page, mid, s.season_id, timeout_secs=timeout_secs)
+                    except Exception as exc:
+                        log_warn("series.archives.fetch_failed", season_id=s.season_id, error=str(exc))
+                        videos = []
+                    series_with_videos.append((s, videos))
+            finally:
+                page.close()
+    except Exception as exc:
+        print(f"error: Failed to fetch series archives: {exc}", flush=True)
+        return 1
+
+    total_videos = sum(len(v) for _, v in series_with_videos)
+
+    # --- Print mode ------------------------------------------------------------
+    if not download:
+        if json_output:
+            payload = {
+                "mid": mid,
+                "series_count": len(series_with_videos),
+                "total_videos": total_videos,
+                "series": [
+                    {
+                        "season_id": s.season_id,
+                        "name": s.meta_name,
+                        "description": s.meta_description,
+                        "total": s.total,
+                        "cover": s.cover,
+                        "url": s.space_url,
+                        "video_count": len(videos),
+                        "videos": [
+                            {
+                                "bvid": v.bvid,
+                                "aid": v.aid,
+                                "title": v.title,
+                                "duration_secs": v.duration_secs,
+                                "stat_view": v.stat_view,
+                                "url": v.video_url,
+                            }
+                            for v in videos
+                        ],
+                    }
+                    for s, videos in series_with_videos
+                ],
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            for s, videos in series_with_videos:
+                print(f"\n{'=' * 60}")
+                print(f"  Series: {s.meta_name}  (season_id={s.season_id})")
+                if s.meta_description:
+                    print(f"  Desc: {s.meta_description}")
+                print(f"  Total: {s.total} videos  (fetched: {len(videos)})")
+                print(f"  URL: {s.space_url}")
+                print(f"{'=' * 60}")
+                for i, v in enumerate(videos, 1):
+                    dur = f"{v.duration_secs // 60}:{v.duration_secs % 60:02d}"
+                    views = f"{v.stat_view / 10000:.1f}w" if v.stat_view >= 10000 else str(v.stat_view)
+                    print(f"  {i:3d}. [{dur}] {v.bvid}  {views} views")
+                    print(f"       {v.title}")
+            if total_videos:
+                print(f"\nTotal: {len(series_with_videos)} series, {total_videos} videos")
+        return 0
+
+    # --- Download mode ---------------------------------------------------------
+    # Build ParsedInput list
+    parsed_inputs: list[ParsedInput] = []
+    for s, videos in series_with_videos:
+        for v in videos:
+            video_url = v.video_url
+            parsed_inputs.append(ParsedInput(
+                raw_input=video_url,
+                extracted_url=video_url,
+                canonical_url=video_url,
+                provider_key="bilibili",
+                author_hint=f"{s.meta_name}" if s.meta_name else "",
+            ))
+
+    if not parsed_inputs:
+        print("No videos to download.")
+        return 0
+
+    print(f"Downloading {len(parsed_inputs)} videos from {len(series_with_videos)} series...")
+
+    job_results = _run_download_jobs(
+        prepared_inputs=parsed_inputs,
+        browser_config=browser_config,
+        output_dir=output_dir,
+        timeout_secs=timeout_secs,
+        max_concurrent=(config.max_concurrent if config else 1),
+        max_concurrent_per_site=(config.max_concurrent_per_site if config else 1),
+        start_interval_secs=(config.start_interval_secs if config else 0.0),
+        watermark=(config.watermark if config else None),
+        bilibili_download_mode=bb_mode,
+    )
+
+    if json_output:
+        payload = [
+            {
+                "ok": item.ok,
+                "raw_input": item.raw_input,
+                "output_path": str(item.artifact.output_path.resolve()) if item.artifact else "",
+                "content_id": item.extraction.metadata.content_id if item.extraction else "",
+                "author": item.extraction.metadata.author if item.extraction else "",
+                "desc": item.extraction.metadata.desc if item.extraction else "",
+                "error": item.error,
+            }
+            for item in job_results
+        ]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        ok_count = sum(1 for r in job_results if r.ok)
+        fail_count = sum(1 for r in job_results if not r.ok)
+        for r in job_results:
+            if r.ok and r.artifact:
+                print(f"  OK  {r.artifact.output_path}")
+            else:
+                print(f"  FAIL  {r.raw_input}: {r.error}")
+        print(f"\nDone: {ok_count} ok, {fail_count} failed")
+
+    return 0 if all(r.ok for r in job_results) else 1
